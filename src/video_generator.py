@@ -9,6 +9,7 @@ from typing import List, Optional, Dict
 from dataclasses import dataclass
 from loguru import logger
 import pysubs2
+import click
 
 
 @dataclass
