@@ -1,0 +1,16 @@
+# Python
+moviepy>=1.0.3
+ffmpeg-python>=0.2.0
+pydub>=0.25.1
+pysubs2>=0.2.5
+numpy>=1.24.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+pyyaml>=6.0
+tqdm>=4.65.0
+loguru>=0.7.0
+click>=8.1.0
+
+# 可选：AI 功能
+# openai-whisper>=20230314
+# edge-tts>=6.1.0
