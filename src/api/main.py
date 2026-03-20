@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.services.file_service import FileService
 from src.services.task_service import TaskService, TaskStatus
 from src.services.audio_service import AudioService
+from src.services.video_service import VideoService
 
 app = FastAPI(
     title="Video Generator API",
@@ -42,6 +43,7 @@ app.add_middleware(
 file_service = FileService()
 task_service = TaskService()
 audio_service = AudioService(file_service=file_service)
+video_service = VideoService(file_service=file_service, task_service=task_service)
 
 # ==================== 数据模型 ====================
 
@@ -138,6 +140,69 @@ class ASRResponse(BaseModel):
     taskId: str
     status: str
 
+# ==================== 视频处理数据模型 ====================
+
+class VideoConcatRequest(BaseModel):
+    videos: List[str] = Field(..., min_length=2, description="视频 fileId 列表")
+    outputName: Optional[str] = Field(None, description="输出文件名")
+    transition: Optional[str] = Field("none", description="转场效果：none/fade/dissolve")
+
+class TextOverlayRequest(BaseModel):
+    videoId: str
+    text: str
+    position: Dict[str, int] = Field(default_factory=lambda: {"x": 100, "y": 200})
+    style: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    duration: Optional[Dict[str, float]] = Field(default_factory=lambda: {"start": 0, "end": -1})
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
+class ImageOverlayRequest(BaseModel):
+    videoId: str
+    imageId: str
+    position: Dict[str, int] = Field(default_factory=lambda: {"x": 50, "y": 50})
+    opacity: Optional[float] = Field(1.0, ge=0.0, le=1.0)
+    duration: Optional[Dict[str, float]] = Field(default_factory=dict)
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
+class AddMusicRequest(BaseModel):
+    videoId: str
+    musicId: str
+    startTime: Optional[float] = Field(0, ge=0)
+    endTime: Optional[float] = Field(-1)
+    volume: Optional[float] = Field(0.3, ge=0.0, le=1.0)
+    fade: Optional[Dict[str, float]] = Field(default_factory=dict)
+    loop: Optional[bool] = Field(True)
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
+class AddVoiceoverRequest(BaseModel):
+    videoId: str
+    voiceoverId: str
+    alignMode: Optional[str] = Field("start", description="start/center/end/custom")
+    startTime: Optional[float] = Field(0, ge=0)
+    volume: Optional[float] = Field(0.8, ge=0.0, le=1.0)
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
+class AddSubtitlesRequest(BaseModel):
+    videoId: str
+    subtitleId: str
+    offset: Optional[float] = Field(0, description="时间偏移（秒）")
+    style: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
+class TransitionRequest(BaseModel):
+    videos: List[str] = Field(..., min_length=2, description="视频 fileId 列表")
+    transition: str = Field(..., description="转场类型：fade/dissolve/wipe/slide")
+    duration: Optional[float] = Field(1.0, ge=0.1)
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
+class ProcessStep(BaseModel):
+    type: str = Field(..., description="步骤类型：add_music/add_voiceover/add_subtitles/text_overlay/image_overlay")
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+class ProcessPipelineRequest(BaseModel):
+    videoId: str
+    steps: List[ProcessStep] = Field(..., min_length=1, description="处理步骤列表")
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
 # ==================== 错误码 ====================
 
 ERROR_CODES = {
@@ -147,6 +212,10 @@ ERROR_CODES = {
     1003: "文件损坏",
     1004: "文件类型不匹配",
     1005: "文件不存在",
+    # 视频处理 (2000-2999)
+    2001: "视频数量不足",
+    2002: "视频格式不一致",
+    2003: "时间范围超出视频长度",
     # 音频处理 (2000-2999)
     2010: "文本过长",
     2011: "音色不支持",
@@ -597,6 +666,682 @@ async def generate_asr(request: ASRRequest):
         
     except Exception as e:
         return error_response(5003, "ASR 任务提交失败", str(e), path="/api/v1/audio/asr")
+
+# ==================== 视频处理接口 ====================
+
+@app.post("/api/v1/video/concat", response_model=Dict[str, Any])
+async def video_concat(request: VideoConcatRequest):
+    """
+    视频拼接
+    
+    - **videos**: 视频 fileId 列表，至少 2 个
+    - **outputName**: 输出文件名
+    - **transition**: 转场效果：none/fade/dissolve，默认 none
+    """
+    try:
+        # 验证视频数量
+        if len(request.videos) < 2:
+            return error_response(2001, "至少需要 2 个视频进行拼接", path="/api/v1/video/concat")
+        
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/concat",
+            input_data={
+                "videos": request.videos,
+                "transition": request.transition
+            }
+        )
+        
+        # 异步处理
+        async def process_concat():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在加载视频..."
+                )
+                
+                result = await video_service.concat_videos(
+                    video_ids=request.videos,
+                    output_name=request.outputName,
+                    transition=request.transition
+                )
+                
+                # 保存输出文件到文件服务
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="视频拼接完成",
+                    result_data={"outputId": result["outputId"]}
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_concat())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending",
+                "estimatedTime": 60
+            },
+            "message": "任务已提交"
+        }
+        
+    except ValueError as e:
+        return error_response(400, str(e), path="/api/v1/video/concat")
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/concat")
+
+
+@app.post("/api/v1/video/text-overlay", response_model=Dict[str, Any])
+async def video_text_overlay(request: TextOverlayRequest):
+    """
+    添加文字特效
+    
+    - **videoId**: 视频文件 ID
+    - **text**: 文字内容
+    - **position**: 位置 {"x": 100, "y": 200}
+    - **style**: 样式 {"fontSize": 24, "fontFamily": "Arial", "color": "#FFFFFF", ...}
+    - **duration**: 时长 {"start": 0, "end": 5}
+    """
+    try:
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/text-overlay",
+            input_data=request.dict()
+        )
+        
+        # 异步处理
+        async def process_text_overlay():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在添加文字特效..."
+                )
+                
+                result = await video_service.add_text_overlay(
+                    video_id=request.videoId,
+                    text=request.text,
+                    position=request.position,
+                    style=request.style,
+                    duration=request.duration,
+                    output_name=request.outputName
+                )
+                
+                # 保存输出文件
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="文字特效添加完成",
+                    result_data={"outputId": result["outputId"]}
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_text_overlay())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending"
+            },
+            "message": "任务已提交"
+        }
+        
+    except ValueError as e:
+        if "时间范围超出" in str(e):
+            return error_response(2003, str(e), path="/api/v1/video/text-overlay")
+        return error_response(400, str(e), path="/api/v1/video/text-overlay")
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/text-overlay")
+
+
+@app.post("/api/v1/video/image-overlay", response_model=Dict[str, Any])
+async def video_image_overlay(request: ImageOverlayRequest):
+    """
+    添加图片/动图水印
+    
+    - **videoId**: 视频文件 ID
+    - **imageId**: 图片文件 ID
+    - **position**: 位置 {"x": 50, "y": 50}
+    - **opacity**: 透明度 (0.0-1.0)
+    - **duration**: 时长 {"start": 0, "end": -1}
+    """
+    try:
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/image-overlay",
+            input_data=request.dict()
+        )
+        
+        # 异步处理
+        async def process_image_overlay():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在添加图片水印..."
+                )
+                
+                result = await video_service.add_image_overlay(
+                    video_id=request.videoId,
+                    image_id=request.imageId,
+                    position=request.position,
+                    opacity=request.opacity,
+                    duration=request.duration,
+                    output_name=request.outputName
+                )
+                
+                # 保存输出文件
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="图片水印添加完成",
+                    result_data={"outputId": result["outputId"]}
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_image_overlay())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending"
+            },
+            "message": "任务已提交"
+        }
+        
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/image-overlay")
+
+
+@app.post("/api/v1/video/add-music", response_model=Dict[str, Any])
+async def video_add_music(request: AddMusicRequest):
+    """
+    添加背景音乐
+    
+    - **videoId**: 视频文件 ID
+    - **musicId**: 音频文件 ID
+    - **startTime**: 从视频的第几秒开始播放
+    - **endTime**: 结束时间 (-1 表示直到视频结束)
+    - **volume**: 音量 (0.0-1.0)
+    - **fade**: 淡入淡出 {"in": 2.0, "out": 2.0}
+    - **loop**: 是否循环
+    """
+    try:
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/add-music",
+            input_data=request.dict()
+        )
+        
+        # 异步处理
+        async def process_add_music():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在添加背景音乐..."
+                )
+                
+                result = await video_service.add_background_music(
+                    video_id=request.videoId,
+                    music_id=request.musicId,
+                    start_time=request.startTime,
+                    end_time=request.endTime,
+                    volume=request.volume,
+                    fade=request.fade if request.fade else None,
+                    loop=request.loop,
+                    output_name=request.outputName
+                )
+                
+                # 保存输出文件
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="背景音乐添加完成",
+                    result_data={"outputId": result["outputId"]}
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_add_music())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending"
+            },
+            "message": "任务已提交"
+        }
+        
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/add-music")
+
+
+@app.post("/api/v1/video/add-voiceover", response_model=Dict[str, Any])
+async def video_add_voiceover(request: AddVoiceoverRequest):
+    """
+    添加配音
+    
+    - **videoId**: 视频文件 ID
+    - **voiceoverId**: 配音音频文件 ID
+    - **alignMode**: 对齐模式 (start/center/end/custom)
+    - **startTime**: 自定义开始时间
+    - **volume**: 音量 (0.0-1.0)
+    """
+    try:
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/add-voiceover",
+            input_data=request.dict()
+        )
+        
+        # 异步处理
+        async def process_add_voiceover():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在添加配音..."
+                )
+                
+                result = await video_service.add_voiceover(
+                    video_id=request.videoId,
+                    voiceover_id=request.voiceoverId,
+                    align_mode=request.alignMode,
+                    start_time=request.startTime,
+                    volume=request.volume,
+                    output_name=request.outputName
+                )
+                
+                # 保存输出文件
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="配音添加完成",
+                    result_data={"outputId": result["outputId"]}
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_add_voiceover())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending"
+            },
+            "message": "任务已提交"
+        }
+        
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/add-voiceover")
+
+
+@app.post("/api/v1/video/transition", response_model=Dict[str, Any])
+async def video_transition(request: TransitionRequest):
+    """
+    添加转场特效
+    
+    - **videos**: 视频 fileId 列表，至少 2 个
+    - **transition**: 转场类型：fade/dissolve/wipe/slide
+    - **duration**: 转场时长（秒）
+    """
+    try:
+        # 验证视频数量
+        if len(request.videos) < 2:
+            return error_response(2001, "至少需要 2 个视频", path="/api/v1/video/transition")
+        
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/transition",
+            input_data=request.dict()
+        )
+        
+        # 异步处理
+        async def process_transition():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在添加转场特效..."
+                )
+                
+                result = await video_service.add_transition(
+                    video_ids=request.videos,
+                    transition=request.transition,
+                    duration=request.duration,
+                    output_name=request.outputName
+                )
+                
+                # 保存输出文件
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="转场特效添加完成",
+                    result_data={"outputId": result["outputId"]}
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_transition())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending"
+            },
+            "message": "任务已提交"
+        }
+        
+    except ValueError as e:
+        return error_response(400, str(e), path="/api/v1/video/transition")
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/transition")
+
+
+@app.post("/api/v1/video/add-subtitles", response_model=Dict[str, Any])
+async def video_add_subtitles(request: AddSubtitlesRequest):
+    """
+    添加字幕
+    
+    - **videoId**: 视频文件 ID
+    - **subtitleId**: SRT 字幕文件 ID
+    - **offset**: 时间偏移（秒）
+    - **style**: 样式 {"fontSize": 20, "fontFamily": "思源黑体", "color": "#FFFFFF", ...}
+    """
+    try:
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/add-subtitles",
+            input_data=request.dict()
+        )
+        
+        # 异步处理
+        async def process_add_subtitles():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在添加字幕..."
+                )
+                
+                result = await video_service.add_subtitles(
+                    video_id=request.videoId,
+                    subtitle_id=request.subtitleId,
+                    offset=request.offset,
+                    style=request.style,
+                    output_name=request.outputName
+                )
+                
+                # 保存输出文件
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="字幕添加完成",
+                    result_data={"outputId": result["outputId"]}
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_add_subtitles())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending"
+            },
+            "message": "任务已提交"
+        }
+        
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/add-subtitles")
+
+
+@app.post("/api/v1/video/process", response_model=Dict[str, Any])
+async def video_process_pipeline(request: ProcessPipelineRequest):
+    """
+    一站式处理（流水线）
+    
+    - **videoId**: 视频文件 ID
+    - **steps**: 处理步骤列表
+    - **outputName**: 输出文件名
+    
+    支持的步骤类型:
+    - add_music - 添加背景音乐
+    - add_voiceover - 添加配音
+    - add_subtitles - 添加字幕
+    - text_overlay - 添加文字
+    - image_overlay - 添加图片水印
+    """
+    try:
+        # 验证步骤
+        if not request.steps:
+            return error_response(400, "处理步骤不能为空", path="/api/v1/video/process")
+        
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="video/process",
+            input_data={
+                "videoId": request.videoId,
+                "steps": [s.dict() for s in request.steps],
+                "outputName": request.outputName
+            }
+        )
+        
+        # 异步处理
+        async def process_pipeline():
+            try:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
+                    message="正在处理流水线...",
+                    result_data={"totalSteps": len(request.steps), "currentStep": 0}
+                )
+                
+                # 转换步骤为字典格式
+                steps_dict = [s.dict() for s in request.steps]
+                
+                result = await video_service.process_pipeline(
+                    video_id=request.videoId,
+                    steps=steps_dict,
+                    output_name=request.outputName
+                )
+                
+                # 保存最终输出文件
+                with open(result["filePath"], 'rb') as f:
+                    content = f.read()
+                await file_service.save_file(
+                    result["outputId"],
+                    content,
+                    result["fileName"],
+                    "video"
+                )
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="一站式处理完成",
+                    result_data={
+                        "outputId": result["outputId"],
+                        "totalSteps": result.get("totalSteps", len(request.steps)),
+                        "stepResults": result.get("stepResults", [])
+                    }
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=5003,
+                    error_message=str(e)
+                )
+        
+        asyncio.create_task(process_pipeline())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending",
+                "totalSteps": len(request.steps),
+                "currentStep": 0
+            },
+            "message": "任务已提交"
+        }
+        
+    except ValueError as e:
+        return error_response(400, str(e), path="/api/v1/video/process")
+    except Exception as e:
+        return error_response(5003, str(e), path="/api/v1/video/process")
 
 # ==================== 健康检查 ====================
 
