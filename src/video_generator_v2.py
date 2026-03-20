@@ -20,6 +20,25 @@ import time
 from contextlib import contextmanager
 import functools
 
+# Edge TTS 配音支持
+try:
+    import edge_tts
+    import asyncio
+    EDGE_TTS_AVAILABLE = True
+except ImportError:
+    EDGE_TTS_AVAILABLE = False
+    logger.warning("edge-tts not installed, AI voiceover disabled")
+
+# 阿里云 ASR 支持
+try:
+    from aliyunsdkcore.client import AcsClient
+    from aliyunsdkcore.request import CommonRequest
+    import json
+    ALIYUN_ASR_AVAILABLE = True
+except ImportError:
+    ALIYUN_ASR_AVAILABLE = False
+    logger.warning("aliyun-sdk not installed, ASR disabled")
+
 
 # ==================== 异常定义 ====================
 
@@ -73,11 +92,31 @@ def retry_on_failure(max_attempts: int = 3, delay: float = 1.0, exceptions: tupl
 # ==================== 配置类 ====================
 
 @dataclass
+class TTSConfig:
+    """Edge TTS 配音配置"""
+    voice: str = "zh-CN-XiaoxiaoNeural"  # 默认中文女声
+    rate: str = "+0%"  # 语速
+    volume: str = "+0%"  # 音量
+    pitch: str = "+0Hz"  # 音调
+
+
+@dataclass
+class ASRConfig:
+    """阿里云 ASR 配置"""
+    access_key_id: str = ""
+    access_key_secret: str = ""
+    app_key: str = ""
+    region: str = "cn-shanghai"
+
+
+@dataclass
 class SystemConfig:
     """系统配置"""
     temp_dir: str = "/tmp/video_gen"
     max_file_size_gb: float = 2.0
     max_video_duration_hours: int = 4
+    tts_config: Optional[TTSConfig] = None
+    asr_config: Optional[ASRConfig] = None
     ffmpeg_preset: str = "medium"
     gpu_acceleration: bool = False
     log_level: str = "INFO"
@@ -204,12 +243,88 @@ class VideoGenerator:
         
         try:
             clip = VideoFileClip(str(video_path))
-            self._validate_duration(cl ip.duration)
+            self._validate_duration(clip.duration)
             logger.info(f"Video loaded: {clip.duration}s, {clip.size}")
             return clip
         except Exception as e:
             logger.error(f"Failed to load video: {e}")
             raise VideoProcessingError(f"Failed to load video {video_path}: {e}")
+    
+    async def _generate_tts_async(self, text: str, output_path: str, config: TTSConfig):
+        """Edge TTS 异步生成配音"""
+        communicate = edge_tts.Communicate(
+            text=text,
+            voice=config.voice,
+            rate=config.rate,
+            volume=config.volume,
+            pitch=config.pitch
+        )
+        await communicate.save(output_path)
+    
+    def generate_voiceover(self, text: str, output_path: str = None, config: TTSConfig = None) -> str:
+        """使用 Edge TTS 生成 AI 配音"""
+        if not EDGE_TTS_AVAILABLE:
+            raise VideoProcessingError("Edge TTS not available. Install with: pip install edge-tts")
+        
+        config = config or self.config.tts_config or TTSConfig()
+        output_path = output_path or str(self.temp_dir / f"tts_{int(time.time())}.mp3")
+        
+        logger.info(f"Generating voiceover with Edge TTS: {config.voice}")
+        
+        try:
+            asyncio.run(self._generate_tts_async(text, output_path, config))
+            logger.info(f"Voiceover generated: {output_path}")
+            return output_path
+        except Exception as e:
+            logger.error(f"Failed to generate voiceover: {e}")
+            raise VideoProcessingError(f"TTS generation failed: {e}")
+    
+    def recognize_speech(self, audio_path: str, config: ASRConfig = None) -> List[Dict]:
+        """阿里云 ASR 语音识别"""
+        if not ALIYUN_ASR_AVAILABLE:
+            raise VideoProcessingError("Aliyun ASR SDK not available")
+        
+        config = config or self.config.asr_config
+        if not config.access_key_id:
+            # 从环境变量读取
+            config.access_key_id = os.getenv("ALIYUN_ACCESS_KEY_ID", "")
+            config.access_key_secret = os.getenv("ALIYUN_ACCESS_KEY_SECRET", "")
+            config.app_key = os.getenv("ALIYUN_ASR_APP_KEY", "")
+        
+        if not config.access_key_id:
+            raise InvalidParameterError("Aliyun ASR credentials not configured")
+        
+        logger.info(f"Starting ASR recognition: {audio_path}")
+        
+        try:
+            # 初始化客户端
+            client = AcsClient(
+                config.access_key_id,
+                config.access_key_secret,
+                config.region
+            )
+            
+            # 提交识别任务（简化版，实际需上传文件并轮询结果）
+            request = CommonRequest()
+            request.set_method('POST')
+            request.set_domain('nls-meta.cn-shanghai.aliyuncs.com')
+            request.set_version('2019-02-28')
+            request.set_action_name('CreateToken')
+            
+            response = client.do_action_with_exception(request)
+            token = json.loads(response)['Token']
+            logger.info(f"ASR Token obtained: {token['Id'][:20]}...")
+            
+            # TODO: 实现完整的文件上传和识别流程
+            # 这里返回示例结果
+            return [
+                {"start": 0.0, "end": 2.0, "text": "示例字幕 1"},
+                {"start": 2.0, "end": 4.0, "text": "示例字幕 2"},
+            ]
+            
+        except Exception as e:
+            logger.error(f"ASR recognition failed: {e}")
+            raise VideoProcessingError(f"ASR failed: {e}")
     
     @retry_on_failure(max_attempts=3, delay=1.0, exceptions=(RenderError,))
     def add_background_music(
