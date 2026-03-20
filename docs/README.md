@@ -31,9 +31,9 @@
 
 | 文档 | 说明 | 负责人 | 状态 |
 |------|------|--------|------|
-| [TESTING.md](TESTING.md) | 测试规范 | 测试工程师 | ⏳ 待编写 |
-| [test_plan.md](test_plan.md) | 测试计划 | 测试工程师 | ⏳ 待编写 |
-| [test_cases/](test_cases/) | 测试用例集 | 测试工程师 | ⏳ 待编写 |
+| [TESTING.md](TESTING.md) | 测试规范 | 测试工程师 | ✅ 已完成 |
+| [test_cases.md](test_cases.md) | 测试用例集 (31 个用例) | 测试工程师 | ✅ 已完成 |
+| [bug_tracking.md](bug_tracking.md) | 缺陷管理文档 | 测试工程师 | ✅ 已完成 |
 
 ### 4. 用户文档 (`docs/`)
 
