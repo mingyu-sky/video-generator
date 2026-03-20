@@ -30,6 +30,8 @@ from src.services.ai_video_service import AIVideoService
 from src.services.quota_service import QuotaService
 from src.services.dashboard_service import DashboardService
 from src.services.template_service import TemplateService
+from src.services.system_service import SystemService
+from src.services.material_service import MaterialService
 
 app = FastAPI(
     title="Video Generator API",
@@ -57,6 +59,9 @@ storyboard_service = StoryboardService(file_service=file_service)
 ai_video_service = AIVideoService()
 quota_service = QuotaService()
 dashboard_service = DashboardService()
+template_service = TemplateService(file_service=file_service)
+system_service = SystemService()
+material_service = MaterialService(file_service=file_service)
 
 # ==================== 数据模型 ====================
 
@@ -304,6 +309,59 @@ class AIVideoDownloadResponse(BaseModel):
     fileName: str
     fileSize: int
     downloadUrl: str
+
+# ==================== 模板管理数据模型 ====================
+
+class TemplateStep(BaseModel):
+    stepType: str = Field(..., description="步骤类型：script/storyboard/audio/video/etc")
+    config: Dict[str, Any] = Field(default_factory=dict, description="步骤配置参数")
+    order: int = Field(0, description="步骤顺序")
+
+class TemplateCreateRequest(BaseModel):
+    name: str = Field(..., max_length=100, description="模板名称")
+    description: str = Field("", max_length=500, description="模板描述")
+    steps: List[TemplateStep] = Field(..., min_length=1, description="模板步骤列表")
+    isPublic: bool = Field(False, description="是否公开")
+
+class TemplateInfo(BaseModel):
+    templateId: str
+    name: str
+    description: str
+    isPublic: bool
+    createdAt: str
+    updatedAt: str
+    version: str
+    stepCount: int
+
+class TemplateListResponse(BaseModel):
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int
+    templates: List[TemplateInfo]
+
+class TemplateDetailResponse(BaseModel):
+    templateId: str
+    name: str
+    description: str
+    steps: List[TemplateStep]
+    isPublic: bool
+    createdAt: str
+    updatedAt: str
+    version: str
+
+class TemplateApplyRequest(BaseModel):
+    videoId: Optional[str] = Field(None, description="视频 ID（可选）")
+
+class TemplateApplyResponse(BaseModel):
+    applyId: str
+    templateId: str
+    templateName: str
+    videoId: Optional[str]
+    appliedAt: str
+    steps: List[TemplateStep]
+    status: str
+    currentStep: int
 
 # ==================== 错误码 ====================
 
@@ -2175,6 +2233,164 @@ async def get_dashboard_recent(
         return error_response(5004, "获取最近使用记录失败", str(e), "/api/v1/dashboard/recent")
 
 
+# ==================== 模板管理接口 ====================
+
+@app.post("/api/v1/templates", response_model=Dict[str, Any])
+async def create_template(request: TemplateCreateRequest):
+    """
+    创建模板
+    
+    - **name**: 模板名称
+    - **description**: 模板描述
+    - **steps**: 模板步骤列表
+    - **isPublic**: 是否公开
+    """
+    try:
+        # 参数验证
+        if not request.name or not request.name.strip():
+            return error_response(4001, "模板名称不能为空", path="/api/v1/templates")
+        
+        if not request.steps or len(request.steps) == 0:
+            return error_response(4002, "模板步骤不能为空", path="/api/v1/templates")
+        
+        # 调用服务创建模板
+        steps_data = [step.dict() for step in request.steps]
+        template = template_service.create_template(
+            name=request.name,
+            description=request.description,
+            steps=steps_data,
+            is_public=request.isPublic
+        )
+        
+        return {
+            "code": 201,
+            "data": {
+                "templateId": template["templateId"],
+                "name": template["name"],
+                "description": template["description"],
+                "stepCount": len(template["steps"]),
+                "isPublic": template["isPublic"],
+                "createdAt": template["createdAt"]
+            },
+            "message": "模板创建成功"
+        }
+        
+    except ValueError as e:
+        return error_response(4001, str(e), path="/api/v1/templates")
+    except Exception as e:
+        return error_response(5001, str(e), path="/api/v1/templates")
+
+
+@app.get("/api/v1/templates", response_model=Dict[str, Any])
+async def get_templates(
+    page: int = Query(1, ge=1, description="页码"),
+    pageSize: int = Query(20, ge=1, le=100, description="每页数量"),
+    isPublic: Optional[bool] = Query(None, description="筛选公开/私有模板")
+):
+    """
+    获取模板列表
+    
+    - **page**: 页码
+    - **pageSize**: 每页数量
+    - **isPublic**: 筛选公开/私有模板，不填表示全部
+    """
+    try:
+        result = template_service.get_templates(
+            page=page,
+            page_size=pageSize,
+            is_public=isPublic
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "total": result["total"],
+                "page": result["page"],
+                "pageSize": result["pageSize"],
+                "totalPages": result["totalPages"],
+                "templates": result["templates"]
+            },
+            "message": "获取成功"
+        }
+        
+    except Exception as e:
+        return error_response(5001, str(e), path="/api/v1/templates")
+
+
+@app.get("/api/v1/templates/{template_id}", response_model=Dict[str, Any])
+async def get_template(template_id: str = Path(..., description="模板 ID")):
+    """
+    获取模板详情
+    
+    - **template_id**: 模板 ID
+    """
+    try:
+        template = template_service.get_template(template_id)
+        
+        return {
+            "code": 200,
+            "data": template,
+            "message": "获取成功"
+        }
+        
+    except ValueError as e:
+        return error_response(4001, str(e), path=f"/api/v1/templates/{template_id}")
+    except FileNotFoundError as e:
+        return error_response(4004, str(e), path=f"/api/v1/templates/{template_id}")
+    except Exception as e:
+        return error_response(5001, str(e), path=f"/api/v1/templates/{template_id}")
+
+
+@app.delete("/api/v1/templates/{template_id}", response_model=Dict[str, Any])
+async def delete_template(template_id: str = Path(..., description="模板 ID")):
+    """
+    删除模板
+    
+    - **template_id**: 模板 ID
+    """
+    try:
+        template_service.delete_template(template_id)
+        
+        return {
+            "code": 200,
+            "message": "模板删除成功"
+        }
+        
+    except ValueError as e:
+        return error_response(4001, str(e), path=f"/api/v1/templates/{template_id}")
+    except FileNotFoundError as e:
+        return error_response(4004, str(e), path=f"/api/v1/templates/{template_id}")
+    except Exception as e:
+        return error_response(5001, str(e), path=f"/api/v1/templates/{template_id}")
+
+
+@app.post("/api/v1/templates/{template_id}/apply", response_model=Dict[str, Any])
+async def apply_template(template_id: str = Path(..., description="模板 ID"),
+                        request: TemplateApplyRequest = None):
+    """
+    应用模板到视频生成任务
+    
+    - **template_id**: 模板 ID
+    - **videoId**: 视频 ID（可选）
+    """
+    try:
+        video_id = request.videoId if request else None
+        result = template_service.apply_template(template_id, video_id)
+        
+        return {
+            "code": 200,
+            "data": result,
+            "message": "模板应用成功"
+        }
+        
+    except ValueError as e:
+        return error_response(4001, str(e), path=f"/api/v1/templates/{template_id}/apply")
+    except FileNotFoundError as e:
+        return error_response(4004, str(e), path=f"/api/v1/templates/{template_id}/apply")
+    except Exception as e:
+        return error_response(5001, str(e), path=f"/api/v1/templates/{template_id}/apply")
+
+
 # ==================== 健康检查 ====================
 
 # ==================== 批量生成接口 ====================
@@ -2309,24 +2525,239 @@ async def list_batches(
                              path="/api/v1/ai/batches")
 
 
-# ==================== 健康检查 ====================
+# ==================== 素材管理模块接口 ====================
+
+class MusicListResponse(BaseModel):
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int
+    musicList: List[Dict[str, Any]]
+    genres: List[str]
+    moods: List[str]
+
+class TemplateListResponse(BaseModel):
+    total: int
+    templates: List[Dict[str, Any]]
+    types: List[str]
+
+class MaterialUploadResponse(BaseModel):
+    materialId: str
+    fileName: str
+    fileSize: int
+    materialType: str
+    category: str
+    uploadTime: str
+    filePath: str
+
+class MaterialPreviewResponse(BaseModel):
+    materialId: str
+    fileName: str
+    fileSize: int
+    materialType: str
+    category: str
+    tags: List[str]
+    description: str
+    uploadTime: str
+    filePath: str
+    previewUrl: str
+    status: str
+
+class MaterialUploadRequest(BaseModel):
+    materialType: str = Field(..., description="素材类型：music/template/other")
+    category: str = Field(..., description="分类")
+    tags: List[str] = Field(default=[], description="标签列表")
+    description: str = Field(default="", description="描述")
+
+
+@app.get("/api/v1/materials/music", response_model=Dict[str, Any])
+async def get_music_list(
+    genre: Optional[str] = Query(None, description="音乐类型"),
+    mood: Optional[str] = Query(None, description="情绪"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量")
+):
+    """
+    获取音乐列表
+    
+    - **genre**: 音乐类型筛选（流行/摇滚/电子/古典/爵士/民谣/说唱/轻音乐）
+    - **mood**: 情绪筛选（欢快/悲伤/激昂/平静/浪漫/紧张/温馨/励志）
+    - **page**: 页码
+    - **page_size**: 每页数量
+    """
+    try:
+        result = material_service.get_music_list(
+            genre=genre,
+            mood=mood,
+            page=page,
+            page_size=page_size
+        )
+        return {
+            "code": 200,
+            "data": result,
+            "message": "获取音乐列表成功"
+        }
+    except Exception as e:
+        return error_response(5001, str(e), path="/api/v1/materials/music")
+
+
+@app.get("/api/v1/materials/templates", response_model=Dict[str, Any])
+async def get_templates_list(
+    type: Optional[str] = Query(None, description="模板类型")
+):
+    """
+    获取模板列表
+    
+    - **type**: 模板类型筛选（片头/片尾/转场/字幕/特效/滤镜）
+    """
+    try:
+        result = material_service.get_templates_list(type=type)
+        return {
+            "code": 200,
+            "data": result,
+            "message": "获取模板列表成功"
+        }
+    except Exception as e:
+        return error_response(5001, str(e), path="/api/v1/materials/templates")
+
+
+@app.post("/api/v1/materials/upload", response_model=Dict[str, Any])
+async def upload_material(
+    file: UploadFile = File(..., description="素材文件"),
+    material_type: str = Form(..., description="素材类型：music/template/other"),
+    category: str = Form(..., description="分类"),
+    tags: str = Form(default="[]", description="标签列表（JSON 格式）"),
+    description: str = Form(default="", description="描述")
+):
+    """
+    上传素材
+    
+    - **file**: 素材文件
+    - **material_type**: 素材类型（music/template/other）
+    - **category**: 分类
+    - **tags**: 标签列表（JSON 格式）
+    - **description**: 描述
+    """
+    import json as json_module
+    
+    try:
+        # 保存上传的文件
+        temp_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # 解析 tags
+        try:
+            tags_list = json_module.loads(tags) if tags else []
+            if not isinstance(tags_list, list):
+                tags_list = [tags_list]
+        except:
+            tags_list = [tags] if tags else []
+        
+        # 上传素材
+        result = material_service.upload_material(
+            file_path=temp_path,
+            material_type=material_type,
+            category=category,
+            tags=tags_list,
+            description=description
+        )
+        
+        return {
+            "code": 200,
+            "data": result,
+            "message": "素材上传成功"
+        }
+    except FileNotFoundError as e:
+        return error_response(4004, str(e), path="/api/v1/materials/upload")
+    except ValueError as e:
+        return error_response(4001, str(e), path="/api/v1/materials/upload")
+    except Exception as e:
+        return error_response(5001, str(e), path="/api/v1/materials/upload")
+
+
+@app.get("/api/v1/materials/preview/{file_id}", response_model=Dict[str, Any])
+async def preview_material(file_id: str = Path(..., description="素材 ID")):
+    """
+    预览素材
+    
+    - **file_id**: 素材 ID
+    """
+    try:
+        result = material_service.preview_material(file_id)
+        return {
+            "code": 200,
+            "data": result,
+            "message": "获取素材预览成功"
+        }
+    except FileNotFoundError as e:
+        return error_response(4004, str(e), path=f"/api/v1/materials/preview/{file_id}")
+    except ValueError as e:
+        return error_response(4001, str(e), path=f"/api/v1/materials/preview/{file_id}")
+    except Exception as e:
+        return error_response(5001, str(e), path=f"/api/v1/materials/preview/{file_id}")
+
+
+@app.get("/api/v1/materials/stats", response_model=Dict[str, Any])
+async def get_material_stats():
+    """
+    获取素材统计信息
+    
+    返回素材库的统计信息，包括音乐数量、模板数量、存储使用等
+    """
+    try:
+        result = material_service.get_material_stats()
+        return {
+            "code": 200,
+            "data": result,
+            "message": "获取素材统计成功"
+        }
+    except Exception as e:
+        return error_response(5001, str(e), path="/api/v1/materials/stats")
+
+
+# ==================== 系统模块接口 ====================
 
 @app.get("/api/v1/health")
 async def health_check():
-    """健康检查"""
+    """
+    健康检查
+    
+    返回服务健康状态，包括：
+    - status: 整体状态 (healthy/degraded/unhealthy)
+    - version: 服务版本
+    - uptime: 运行时间（秒）
+    - timestamp: 检查时间戳
+    - checks: 各项检查详情 (api/storage/database/memory/disk)
+    """
+    result = system_service.health_check()
     return {
         "code": 200,
-        "data": {
-            "status": "healthy",
-            "version": "v2.0",
-            "uptime": 0,
-            "checks": {
-                "database": "ok",
-                "storage": "ok",
-                "redis": "ok"
-            }
-        }
+        "data": result,
+        "message": "健康检查完成"
     }
+
+
+@app.get("/api/v1/system/info")
+async def get_system_info():
+    """
+    获取系统信息
+    
+    返回详细系统信息，包括：
+    - os: 操作系统信息
+    - cpu: CPU 信息
+    - memory: 内存信息
+    - disk: 磁盘信息
+    - network: 网络信息
+    - python: Python 环境信息
+    """
+    result = system_service.get_system_info()
+    return {
+        "code": 200,
+        "data": result,
+        "message": "获取成功"
+    }
+
 
 # ==================== 启动服务器 ====================
 
