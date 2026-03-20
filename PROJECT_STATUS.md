@@ -1,8 +1,8 @@
 # Video Generator 项目管理
 
 **项目启动**: 2026-03-21 01:15  
-**当前状态**: 🟢 研发启动  
-**下次汇报**: 2026-03-21 02:15（每小时汇报）
+**当前状态**: 🟡 迭代 2 完成  
+**下次汇报**: 2026-03-21 03:15（每小时汇报）
 
 ---
 
@@ -70,12 +70,12 @@
 
 | 任务 | 负责人 | 状态 | 完成度 |
 |------|--------|------|--------|
-| GET /tasks/:id | Coder | 🟢 进行中 | 0% |
-| DELETE /tasks/:id | Coder | ⏳ 待开始 | 0% |
-| POST /tasks/batch-query | Coder | ⏳ 待开始 | 0% |
-| POST /audio/voiceover | Coder | ⏳ 待开始 | 0% |
-| POST /audio/asr | Coder | ⏳ 待开始 | 0% |
-| 测试用例执行 | Tester | ⏳ 待开始 | 0% |
+| GET /tasks/:id | Coder | ✅ 完成 | 100% |
+| DELETE /tasks/:id | Coder | ✅ 完成 | 100% |
+| POST /tasks/batch-query | Coder | ✅ 完成 | 100% |
+| POST /audio/voiceover | Coder | ✅ 完成 | 100% |
+| POST /audio/asr | Coder | ✅ 完成 | 100% |
+| 测试用例执行 | Tester | ✅ 完成 | 100% |
 
 ### 迭代 3：视频处理（7 人天）
 
