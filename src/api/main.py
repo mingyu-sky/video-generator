@@ -28,6 +28,8 @@ from src.services.script_service import ScriptService
 from src.services.storyboard_service import StoryboardService
 from src.services.ai_video_service import AIVideoService
 from src.services.quota_service import QuotaService
+from src.services.dashboard_service import DashboardService
+from src.services.template_service import TemplateService
 
 app = FastAPI(
     title="Video Generator API",
@@ -54,6 +56,7 @@ script_service = ScriptService()
 storyboard_service = StoryboardService(file_service=file_service)
 ai_video_service = AIVideoService()
 quota_service = QuotaService()
+dashboard_service = DashboardService()
 
 # ==================== 数据模型 ====================
 
@@ -2113,6 +2116,63 @@ async def check_quota(
         
     except Exception as e:
         return error_response(5005, "检查配额失败", str(e), "/api/v1/quota/check")
+
+
+# ==================== 仪表盘接口 ====================
+
+@app.get("/api/v1/dashboard/stats", response_model=Dict[str, Any])
+async def get_dashboard_stats(
+    useCache: bool = Query(True, description="是否使用缓存，默认 true")
+):
+    """
+    获取仪表盘统计数据
+    
+    - **useCache**: 是否使用缓存，默认 true（缓存 5 分钟过期）
+    
+    返回统计信息：
+    - tasks: 任务统计（total/pending/completed）
+    - files: 文件统计（total/videos/storageUsed）
+    - scripts: 剧本统计（total）
+    - batches: 批量任务统计（total）
+    - usage: 配额使用（todayQuota/todayUsed）
+    """
+    try:
+        stats = await dashboard_service.get_stats(use_cache=useCache)
+        
+        return {
+            "code": 200,
+            "data": stats,
+            "message": "获取成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, "获取统计数据失败", str(e), "/api/v1/dashboard/stats")
+
+
+@app.get("/api/v1/dashboard/recent", response_model=Dict[str, Any])
+async def get_dashboard_recent(
+    type: Optional[str] = Query(None, description="类型过滤：tasks/files/scripts/batches，不填则返回全部"),
+    limit: int = Query(10, ge=1, le=100, description="每种类型返回数量限制，默认 10")
+):
+    """
+    获取最近使用记录
+    
+    - **type**: 类型过滤（tasks/files/scripts/batches），不填则返回全部
+    - **limit**: 每种类型返回数量限制，默认 10
+    
+    返回最近使用的任务、文件、剧本、批量任务列表
+    """
+    try:
+        recent = await dashboard_service.get_recent(type=type, limit=limit)
+        
+        return {
+            "code": 200,
+            "data": recent,
+            "message": "获取成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, "获取最近使用记录失败", str(e), "/api/v1/dashboard/recent")
 
 
 # ==================== 健康检查 ====================
