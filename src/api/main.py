@@ -1907,6 +1907,214 @@ async def get_ai_video_config():
         return error_response(5004, str(e), path="/api/v1/ai/video/config")
 
 
+# ==================== 配额管理数据模型 ====================
+
+class QuotaQueryResponse(BaseModel):
+    """配额查询响应"""
+    userId: str
+    quotaTotal: int
+    quotaUsed: int
+    quotaRemaining: int
+    quotaExpire: Optional[str]
+    dailyFreeQuota: int
+    dailyQuotaUsed: int
+    dailyQuotaRemaining: int
+
+
+class QuotaDeductRequest(BaseModel):
+    """配额扣费请求"""
+    amount: int = Field(..., gt=0, description="扣费配额量（秒）")
+    taskType: str = Field(..., description="任务类型：ai_video/asr_subtitle/voiceover")
+    taskId: Optional[str] = Field(None, description="任务 ID")
+
+
+class QuotaTopupRequest(BaseModel):
+    """配额充值请求"""
+    amount: int = Field(..., gt=0, description="充值配额量（秒）")
+    expireDays: Optional[int] = Field(30, ge=1, le=365, description="过期天数，默认 30 天")
+
+
+class QuotaTransactionResponse(BaseModel):
+    """配额交易记录"""
+    id: int
+    userId: str
+    amount: int
+    taskType: str
+    taskId: Optional[str]
+    transactionType: str  # deduct/topup/reset
+    createdAt: str
+
+
+# ==================== 配额管理接口 ====================
+
+@app.get("/api/v1/quota", response_model=Dict[str, Any])
+async def get_quota(
+    user_id: str = Query(..., description="用户 ID")
+):
+    """
+    查询用户配额
+    
+    - **user_id**: 用户 ID
+    
+    返回配额详情，包括：
+    - quotaTotal: 总额度（秒）
+    - quotaUsed: 已用额度（秒）
+    - quotaRemaining: 剩余额度（秒）
+    - quotaExpire: 过期时间
+    - dailyFreeQuota: 每日免费配额（60 秒/日）
+    - dailyQuotaUsed: 今日已用配额
+    - dailyQuotaRemaining: 今日剩余配额
+    """
+    try:
+        quota = await quota_service.get_quota(user_id)
+        
+        return {
+            "code": 200,
+            "data": quota.to_dict(),
+            "message": "查询成功"
+        }
+        
+    except Exception as e:
+        return error_response(5005, "查询配额失败", str(e), "/api/v1/quota")
+
+
+@app.post("/api/v1/quota/deduct", response_model=Dict[str, Any])
+async def deduct_quota(request: QuotaDeductRequest):
+    """
+    扣除用户配额
+    
+    - **amount**: 扣费配额量（秒）
+    - **taskType**: 任务类型（ai_video/asr_subtitle/voiceover）
+    - **taskId**: 任务 ID（可选）
+    
+    计费规则：
+    - AI 配音：免费
+    - ASR 字幕：¥0.02/分钟（10 分钟/日免费）
+    - AI 视频生成：1 秒配额/秒视频（60 秒/日免费）
+    - 批量生成：同 AI 视频
+    """
+    try:
+        result = await quota_service.deduct_quota(
+            user_id=request.taskId.split("-")[0] if request.taskId else "default",
+            amount=request.amount,
+            task_type=request.taskType,
+            task_id=request.taskId
+        )
+        
+        if not result["success"]:
+            return error_response(4002, result.get("error", "扣费失败"), path="/api/v1/quota/deduct")
+        
+        return {
+            "code": 200,
+            "data": {
+                "deducted": result["deducted"],
+                "dailyDeducted": result.get("daily_deducted", 0),
+                "paidDeducted": result.get("paid_deducted", 0),
+                "remaining": result["remaining"]
+            },
+            "message": result.get("message", "扣费成功")
+        }
+        
+    except Exception as e:
+        return error_response(5005, "扣费失败", str(e), "/api/v1/quota/deduct")
+
+
+@app.post("/api/v1/quota/topup", response_model=Dict[str, Any])
+async def topup_quota(
+    request: QuotaTopupRequest,
+    user_id: str = Query(..., description="用户 ID")
+):
+    """
+    充值用户配额
+    
+    - **user_id**: 用户 ID
+    - **amount**: 充值配额量（秒）
+    - **expireDays**: 过期天数，默认 30 天（1-365）
+    """
+    try:
+        result = await quota_service.add_quota(
+            user_id=user_id,
+            amount=request.amount,
+            expire_days=request.expireDays
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "added": result["added"],
+                "total": result["total"],
+                "expire": result["expire"]
+            },
+            "message": result.get("message", "充值成功")
+        }
+        
+    except Exception as e:
+        return error_response(5005, "充值失败", str(e), "/api/v1/quota/topup")
+
+
+@app.get("/api/v1/quota/transactions", response_model=Dict[str, Any])
+async def get_quota_transactions(
+    user_id: str = Query(..., description="用户 ID"),
+    limit: int = Query(50, ge=1, le=100, description="返回数量限制"),
+    offset: int = Query(0, ge=0, description="偏移量")
+):
+    """
+    查询用户配额交易历史
+    
+    - **user_id**: 用户 ID
+    - **limit**: 返回数量限制，默认 50
+    - **offset**: 偏移量，默认 0
+    """
+    try:
+        transactions = await quota_service.get_transaction_history(
+            user_id=user_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "total": len(transactions),
+                "transactions": transactions
+            },
+            "message": "查询成功"
+        }
+        
+    except Exception as e:
+        return error_response(5005, "查询交易历史失败", str(e), "/api/v1/quota/transactions")
+
+
+@app.get("/api/v1/quota/check", response_model=Dict[str, Any])
+async def check_quota(
+    user_id: str = Query(..., description="用户 ID"),
+    amount: int = Query(..., gt=0, description="需要的配额量（秒）"),
+    task_type: str = Query("ai_video", description="任务类型")
+):
+    """
+    检查用户配额是否充足
+    
+    - **user_id**: 用户 ID
+    - **amount**: 需要的配额量（秒）
+    - **task_type**: 任务类型（ai_video/asr_subtitle/voiceover）
+    """
+    try:
+        result = await quota_service.check_quota(
+            user_id=user_id,
+            required_amount=amount,
+            task_type=task_type
+        )
+        
+        return {
+            "code": 200,
+            "data": result,
+            "message": "检查完成"
+        }
+        
+    except Exception as e:
+        return error_response(5005, "检查配额失败", str(e), "/api/v1/quota/check")
+
+
 # ==================== 健康检查 ====================
 
 # ==================== 批量生成接口 ====================
