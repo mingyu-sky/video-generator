@@ -55,27 +55,27 @@
 
 | 任务 | 负责人 | 状态 | 完成度 |
 |------|--------|------|--------|
-| 环境搭建 | Coder | ⏳ 进行中 | 0% |
-| POST /files/upload | Coder | ⏳ 待开始 | 0% |
-| GET /files | Coder | ⏳ 待开始 | 0% |
-| GET /files/:id | Coder | ⏳ 待开始 | 0% |
-| GET /files/:id/download | Coder | ⏳ 待开始 | 0% |
-| DELETE /files/:id | Coder | ⏳ 待开始 | 0% |
-| POST /files/batch-delete | Coder | ⏳ 待开始 | 0% |
-| 测试用例执行 | Tester | ⏳ 待开始 | 0% |
+| 环境搭建 | Coder | ✅ 完成 | 100% |
+| POST /files/upload | Coder | ✅ 完成 | 100% |
+| GET /files | Coder | ✅ 完成 | 100% |
+| GET /files/:id | Coder | ✅ 完成 | 100% |
+| GET /files/:id/download | Coder | ✅ 完成 | 100% |
+| DELETE /files/:id | Coder | ✅ 完成 | 100% |
+| POST /files/batch-delete | Coder | ✅ 完成 | 100% |
+| 测试用例执行 | Tester | ✅ 完成 | 100% |
 
 ### 迭代 2：任务管理 + 音频处理（3 人天）
 
-**时间**: 2026-03-24 ~ 2026-03-26
+**时间**: 2026-03-21 ~ 2026-03-23
 
-| 任务 | 负责人 | 状态 |
-|------|--------|------|
-| GET /tasks/:id | Coder | ⏳ 待开始 |
-| DELETE /tasks/:id | Coder | ⏳ 待开始 |
-| POST /tasks/batch-query | Coder | ⏳ 待开始 |
-| POST /audio/voiceover | Coder | ⏳ 待开始 |
-| POST /audio/asr | Coder | ⏳ 待开始 |
-| 测试用例执行 | Tester | ⏳ 待开始 |
+| 任务 | 负责人 | 状态 | 完成度 |
+|------|--------|------|--------|
+| GET /tasks/:id | Coder | 🟢 进行中 | 0% |
+| DELETE /tasks/:id | Coder | ⏳ 待开始 | 0% |
+| POST /tasks/batch-query | Coder | ⏳ 待开始 | 0% |
+| POST /audio/voiceover | Coder | ⏳ 待开始 | 0% |
+| POST /audio/asr | Coder | ⏳ 待开始 | 0% |
+| 测试用例执行 | Tester | ⏳ 待开始 | 0% |
 
 ### 迭代 3：视频处理（7 人天）
 

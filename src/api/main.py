@@ -20,6 +20,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # 导入文件管理服务
 from src.services.file_service import FileService
+from src.services.task_service import TaskService, TaskStatus
+from src.services.audio_service import AudioService
 
 app = FastAPI(
     title="Video Generator API",
@@ -36,8 +38,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 初始化文件服务
+# 初始化服务
 file_service = FileService()
+task_service = TaskService()
+audio_service = AudioService(file_service=file_service)
 
 # ==================== 数据模型 ====================
 
@@ -92,14 +96,66 @@ class ErrorResponse(BaseModel):
     timestamp: str
     path: str
 
+# ==================== 任务管理数据模型 ====================
+
+class TaskResponse(BaseModel):
+    taskId: str
+    type: str
+    status: str
+    progress: int
+    message: Optional[str] = None
+    createdAt: str
+    updatedAt: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[Dict[str, Any]] = None
+
+class BatchQueryRequest(BaseModel):
+    taskIds: List[str]
+
+class BatchQueryResponse(BaseModel):
+    tasks: List[Dict[str, Any]]
+
+# ==================== 音频处理数据模型 ====================
+
+class VoiceoverRequest(BaseModel):
+    text: str = Field(..., max_length=10000, description="配音文本")
+    voice: Optional[str] = Field(None, description="音色")
+    speed: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="语速")
+    volume: Optional[float] = Field(1.0, ge=0.0, le=1.0, description="音量")
+    outputName: Optional[str] = Field(None, description="输出文件名")
+
+class VoiceoverResponse(BaseModel):
+    audioId: str
+    duration: Optional[float] = None
+    downloadUrl: str
+
+class ASRRequest(BaseModel):
+    audioId: str
+    language: Optional[str] = Field("zh-CN", description="语言")
+    outputFormat: Optional[str] = Field("srt", description="输出格式")
+
+class ASRResponse(BaseModel):
+    taskId: str
+    status: str
+
 # ==================== 错误码 ====================
 
 ERROR_CODES = {
+    # 文件管理 (1000-1999)
     1001: "文件格式不支持",
     1002: "文件大小超限",
     1003: "文件损坏",
     1004: "文件类型不匹配",
     1005: "文件不存在",
+    # 音频处理 (2000-2999)
+    2010: "文本过长",
+    2011: "音色不支持",
+    2012: "配音生成失败",
+    2020: "ASR 识别失败",
+    2021: "音频格式不支持",
+    # 任务管理 (3000-3999)
+    3001: "任务不存在",
+    3002: "任务已完成，无法取消",
 }
 
 def error_response(code: int, message: str = None, details: str = None, path: str = None):
@@ -311,6 +367,236 @@ async def batch_delete_files(request: BatchDeleteRequest):
         
     except Exception as e:
         return error_response(5003, "批量删除失败", str(e), "/api/v1/files/batch-delete")
+
+# ==================== 任务管理接口 ====================
+
+@app.get("/api/v1/tasks/{task_id}", response_model=Dict[str, Any])
+async def get_task(task_id: str = Path(..., description="任务 ID")):
+    """
+    查询任务进度
+    
+    - **task_id**: 任务 ID
+    """
+    try:
+        task = await task_service.get_task(task_id)
+        
+        if not task:
+            return error_response(3001, "任务不存在", path=f"/api/v1/tasks/{task_id}")
+        
+        # 添加下载 URL
+        if "result" in task and task["result"] and "outputId" in task["result"]:
+            task["result"]["downloadUrl"] = f"/api/v1/files/{task['result']['outputId']}/download"
+        
+        return {
+            "code": 200,
+            "data": task
+        }
+        
+    except Exception as e:
+        return error_response(5003, "查询任务失败", str(e), f"/api/v1/tasks/{task_id}")
+
+@app.delete("/api/v1/tasks/{task_id}", response_model=Dict[str, Any])
+async def cancel_task(task_id: str = Path(..., description="任务 ID")):
+    """
+    取消任务
+    
+    - **task_id**: 任务 ID
+    """
+    try:
+        result = await task_service.cancel_task(task_id)
+        
+        if not result["success"]:
+            if result.get("code") == 3001:
+                return error_response(3001, "任务不存在", path=f"/api/v1/tasks/{task_id}")
+            elif result.get("code") == 3002:
+                return error_response(3002, "任务已完成，无法取消", path=f"/api/v1/tasks/{task_id}")
+        
+        return {
+            "code": 200,
+            "message": "任务已取消"
+        }
+        
+    except Exception as e:
+        return error_response(5003, "取消任务失败", str(e), f"/api/v1/tasks/{task_id}")
+
+@app.post("/api/v1/tasks/batch-query", response_model=Dict[str, Any])
+async def batch_query_tasks(request: BatchQueryRequest):
+    """
+    批量查询任务
+    
+    - **taskIds**: 任务 ID 列表
+    """
+    try:
+        tasks = await task_service.batch_get_tasks(request.taskIds)
+        
+        # 简化返回格式
+        simplified_tasks = []
+        for task in tasks:
+            simplified_tasks.append({
+                "taskId": task["taskId"],
+                "status": task["status"],
+                "progress": task["progress"],
+                "message": task.get("message"),
+                "type": task["type"]
+            })
+        
+        return {
+            "code": 200,
+            "data": {
+                "tasks": simplified_tasks
+            }
+        }
+        
+    except Exception as e:
+        return error_response(5003, "批量查询失败", str(e), "/api/v1/tasks/batch-query")
+
+# ==================== 音频处理接口 ====================
+
+@app.post("/api/v1/audio/voiceover", response_model=Dict[str, Any])
+async def generate_voiceover(request: VoiceoverRequest):
+    """
+    AI 配音生成（Edge TTS）
+    
+    - **text**: 配音文本，最大 10000 字
+    - **voice**: 音色，默认 zh-CN-XiaoxiaoNeural
+    - **speed**: 语速，0.5-2.0，默认 1.0
+    - **volume**: 音量，0.0-1.0，默认 1.0
+    """
+    try:
+        # 验证文本长度
+        if len(request.text) > 10000:
+            return error_response(2010, "文本过长，最大支持 10000 字", path="/api/v1/audio/voiceover")
+        
+        # 生成配音
+        result = await audio_service.generate_voiceover(
+            text=request.text,
+            voice=request.voice,
+            speed=request.speed,
+            volume=request.volume,
+            output_name=request.outputName
+        )
+        
+        # 保存文件元数据到文件服务
+        if file_service:
+            file_id = result["audioId"]
+            with open(result["filePath"], 'rb') as f:
+                content = f.read()
+            await file_service.save_file(file_id, content, result["fileName"], "audio")
+        
+        return {
+            "code": 200,
+            "data": {
+                "audioId": result["audioId"],
+                "duration": result["duration"],
+                "downloadUrl": f"/api/v1/files/{result['audioId']}/download"
+            },
+            "message": "配音生成成功"
+        }
+        
+    except ValueError as e:
+        error_msg = str(e)
+        if "音色" in error_msg:
+            return error_response(2011, error_msg, path="/api/v1/audio/voiceover")
+        elif "文本" in error_msg:
+            return error_response(2010, error_msg, path="/api/v1/audio/voiceover")
+        return error_response(400, error_msg, path="/api/v1/audio/voiceover")
+        
+    except RuntimeError as e:
+        return error_response(2012, str(e), path="/api/v1/audio/voiceover")
+        
+    except Exception as e:
+        return error_response(5003, "配音生成失败", str(e), path="/api/v1/audio/voiceover")
+
+@app.post("/api/v1/audio/asr", response_model=Dict[str, Any])
+async def generate_asr(request: ASRRequest):
+    """
+    ASR 字幕生成（阿里云）
+    
+    - **audioId**: 音频文件 ID
+    - **language**: 语言，默认 zh-CN
+    - **outputFormat**: 输出格式，默认 srt
+    """
+    try:
+        # 获取音频文件路径
+        file_path = await file_service.get_file_path(request.audioId)
+        if not file_path or not os.path.exists(file_path):
+            return error_response(1005, "音频文件不存在", path="/api/v1/audio/asr")
+        
+        # 验证音频文件格式
+        allowed_extensions = [".mp3", ".wav", ".aac", ".m4a", ".flac"]
+        file_ext = os.path.splitext(file_path)[1].lower()
+        if file_ext not in allowed_extensions:
+            return error_response(2021, f"音频格式不支持，仅支持 {', '.join(allowed_extensions).upper()}", 
+                                 path="/api/v1/audio/asr")
+        
+        # 创建 ASR 任务
+        task_id = str(uuid.uuid4())
+        await task_service.create_task(
+            task_id=task_id,
+            task_type="audio/asr",
+            input_data={
+                "audioId": request.audioId,
+                "language": request.language,
+                "outputFormat": request.outputFormat
+            }
+        )
+        
+        # 异步处理 ASR
+        async def process_asr():
+            try:
+                await task_service.update_task(
+                    task_id, 
+                    status=TaskStatus.PROCESSING, 
+                    progress=10,
+                    message="正在识别音频..."
+                )
+                
+                result = await audio_service.generate_asr(
+                    audio_id=request.audioId,
+                    audio_path=file_path,
+                    language=request.language,
+                    output_format=request.outputFormat
+                )
+                
+                # 保存字幕文件到文件服务
+                subtitle_id = str(uuid.uuid4())
+                with open(result["filePath"], 'r', encoding='utf-8') as f:
+                    content = f.read().encode('utf-8')
+                await file_service.save_file(subtitle_id, content, result["fileName"], "audio")
+                
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.COMPLETED,
+                    progress=100,
+                    message="ASR 识别完成",
+                    result_data={
+                        "subtitleId": subtitle_id,
+                        "outputId": subtitle_id
+                    }
+                )
+                
+            except Exception as e:
+                await task_service.update_task(
+                    task_id,
+                    status=TaskStatus.FAILED,
+                    error_code=2020,
+                    error_message=str(e)
+                )
+        
+        # 启动后台任务
+        asyncio.create_task(process_asr())
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": task_id,
+                "status": "pending"
+            },
+            "message": "ASR 任务已提交"
+        }
+        
+    except Exception as e:
+        return error_response(5003, "ASR 任务提交失败", str(e), path="/api/v1/audio/asr")
 
 # ==================== 健康检查 ====================
 
