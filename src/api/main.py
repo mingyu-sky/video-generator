@@ -1909,6 +1909,140 @@ async def get_ai_video_config():
 
 # ==================== 健康检查 ====================
 
+# ==================== 批量生成接口 ====================
+
+@app.post("/api/v1/ai/batch/generate", response_model=Dict[str, Any])
+async def batch_generate(request: BatchGenerateRequest):
+    """
+    批量生成多集短剧
+    
+    - **scriptId**: 剧本 ID
+    - **episodeRange**: 集数范围 {"start": 1, "end": 80}
+    - **parallelism**: 并行度，默认 4（1-10）
+    """
+    try:
+        # 验证集数范围
+        if request.episodeRange.start > request.episodeRange.end:
+            return error_response(400, "起始集数不能大于结束集数", 
+                                 path="/api/v1/ai/batch/generate")
+        
+        # 创建批量任务
+        batch_info = await batch_service.create_batch_job(
+            script_id=request.scriptId,
+            episode_range=request.episodeRange.dict(),
+            parallelism=request.parallelism
+        )
+        
+        return {
+            "code": 202,
+            "data": {
+                "batchId": batch_info["batchId"],
+                "totalEpisodes": batch_info["totalEpisodes"],
+                "totalShots": batch_info["totalShots"],
+                "status": batch_info["status"],
+                "progress": batch_info["progress"]
+            },
+            "message": "批量任务已创建"
+        }
+        
+    except Exception as e:
+        return error_response(5003, "批量任务创建失败", str(e), 
+                             path="/api/v1/ai/batch/generate")
+
+
+@app.get("/api/v1/ai/batch/{batch_id}", response_model=Dict[str, Any])
+async def get_batch_status(batch_id: str = Path(..., description="批量任务 ID")):
+    """
+    查询批量任务进度
+    
+    - **batch_id**: 批量任务 ID
+    """
+    try:
+        batch_info = await batch_service.query_batch_status(batch_id)
+        
+        if not batch_info:
+            return error_response(4001, "批量任务不存在", 
+                                 path=f"/api/v1/ai/batch/{batch_id}")
+        
+        return {
+            "code": 200,
+            "data": batch_info
+        }
+        
+    except Exception as e:
+        return error_response(5003, "查询批量任务失败", str(e), 
+                             path=f"/api/v1/ai/batch/{batch_id}")
+
+
+@app.delete("/api/v1/ai/batch/{batch_id}", response_model=Dict[str, Any])
+async def cancel_batch(batch_id: str = Path(..., description="批量任务 ID")):
+    """
+    取消批量任务
+    
+    - **batch_id**: 批量任务 ID
+    """
+    try:
+        result = await batch_service.cancel_batch(batch_id)
+        
+        if not result["success"]:
+            if result.get("code") == 4001:
+                return error_response(4001, "批量任务不存在", 
+                                     path=f"/api/v1/ai/batch/{batch_id}")
+            elif result.get("code") == 4002:
+                return error_response(4002, "任务已完成，无法取消", 
+                                     path=f"/api/v1/ai/batch/{batch_id}")
+        
+        return {
+            "code": 200,
+            "message": "批量任务已取消"
+        }
+        
+    except Exception as e:
+        return error_response(5003, "取消批量任务失败", str(e), 
+                             path=f"/api/v1/ai/batch/{batch_id}")
+
+
+@app.get("/api/v1/ai/batches", response_model=Dict[str, Any])
+async def list_batches(
+    scriptId: Optional[str] = Query(None, description="剧本 ID 过滤"),
+    status: Optional[str] = Query(None, description="状态过滤：pending/processing/completed/failed/cancelled"),
+    page: int = Query(1, ge=1, description="页码"),
+    pageSize: int = Query(20, ge=1, le=100, description="每页数量")
+):
+    """
+    获取批量任务列表
+    
+    - **scriptId**: 剧本 ID 过滤
+    - **status**: 状态过滤
+    - **page**: 页码
+    - **pageSize**: 每页数量
+    """
+    try:
+        offset = (page - 1) * pageSize
+        batches = await batch_service.list_batches(
+            script_id=scriptId,
+            status=status,
+            limit=pageSize,
+            offset=offset
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "total": len(batches),
+                "page": page,
+                "pageSize": pageSize,
+                "batches": batches
+            }
+        }
+        
+    except Exception as e:
+        return error_response(5003, "获取批量任务列表失败", str(e), 
+                             path="/api/v1/ai/batches")
+
+
+# ==================== 健康检查 ====================
+
 @app.get("/api/v1/health")
 async def health_check():
     """健康检查"""
