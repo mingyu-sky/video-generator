@@ -79,19 +79,19 @@
 
 ### 迭代 3：视频处理（7 人天）
 
-**时间**: 2026-03-27 ~ 2026-04-02
+**时间**: 2026-03-21 ~ 2026-03-23
 
-| 任务 | 负责人 | 状态 |
-|------|--------|------|
-| POST /video/concat | Coder | ⏳ 待开始 |
-| POST /video/text-overlay | Coder | ⏳ 待开始 |
-| POST /video/image-overlay | Coder | ⏳ 待开始 |
-| POST /video/add-music | Coder | ⏳ 待开始 |
-| POST /video/add-voiceover | Coder | ⏳ 待开始 |
-| POST /video/transition | Coder | ⏳ 待开始 |
-| POST /video/process | Coder | ⏳ 待开始 |
-| POST /video/add-subtitles | Coder | ⏳ 待开始 |
-| 测试用例执行 | Tester | ⏳ 待开始 |
+| 任务 | 负责人 | 状态 | 完成度 |
+|------|--------|------|--------|
+| POST /video/concat | Coder | 🟢 进行中 | 0% |
+| POST /video/text-overlay | Coder | ⏳ 待开始 | 0% |
+| POST /video/image-overlay | Coder | ⏳ 待开始 | 0% |
+| POST /video/add-music | Coder | ⏳ 待开始 | 0% |
+| POST /video/add-voiceover | Coder | ⏳ 待开始 | 0% |
+| POST /video/transition | Coder | ⏳ 待开始 | 0% |
+| POST /video/process | Coder | ⏳ 待开始 | 0% |
+| POST /video/add-subtitles | Coder | ⏳ 待开始 | 0% |
+| 测试用例执行 | Tester | ⏳ 待开始 | 0% |
 
 ---
 
@@ -139,11 +139,11 @@
 
 | 模块 | 开发 | 测试 | 整体 |
 |------|------|------|------|
-| 文件管理 | 0% | 0% | 0% |
-| 任务管理 | 0% | 0% | 0% |
-| 音频处理 | 0% | 0% | 0% |
+| 文件管理 | 100% | 100% | 100% |
+| 任务管理 | 100% | 100% | 100% |
+| 音频处理 | 100% | 100% | 100% |
 | 视频处理 | 0% | 0% | 0% |
-| **总计** | **0%** | **0%** | **0%** |
+| **总计** | **67%** | **67%** | **67%** |
 
 ---
 
@@ -207,5 +207,38 @@
 ---
 
 **维护人**: 王秘书  
-**最后更新**: 2026-03-21 01:15  
-**下次更新**: 2026-03-21 02:15
+**最后更新**: 2026-03-21 04:45  
+**下次更新**: 2026-03-21 05:45
+
+---
+
+## 🆕 最新动态
+
+### 2026-03-21 04:45 - 阶段二：配音集成完成 ✅
+
+**完成内容**:
+- ✅ 确认 edge-tts 依赖已安装 (v7.2.7)
+- ✅ 验证 audio_service.py 服务已实现（Edge TTS 配音生成）
+- ✅ 验证 /api/v1/audio/voiceover API 接口已实现
+- ✅ 创建 tests/test_audio_service.py 单元测试文件
+- ✅ 通过 16 个测试用例（覆盖率 100%）
+
+**测试覆盖**:
+| 测试类别 | 用例数 | 状态 |
+|----------|--------|------|
+| 配音生成测试 | 8 | ✅ 全部通过 |
+| 音色管理测试 | 3 | ✅ 全部通过 |
+| ASR 字幕测试 | 4 | ✅ 全部通过 |
+| 集成测试 | 1 | ✅ 全部通过 |
+
+**可用音色**:
+- zh-CN-XiaoxiaoNeural (女声，温暖) - 默认
+- zh-CN-YunxiNeural (男声，沉稳)
+- zh-CN-XiaoyiNeural (女声，活泼)
+- en-US-JennyNeural (女声，英语)
+
+**API 接口**: `POST /api/v1/audio/voiceover`
+- 请求：text, voice, speed, volume, outputName
+- 响应：audioId, duration, downloadUrl
+
+**提交记录**: `30822a5 feat: 添加音频服务单元测试 (Edge TTS 配音生成)`
