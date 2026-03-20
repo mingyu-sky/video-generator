@@ -23,6 +23,11 @@ from src.services.file_service import FileService
 from src.services.task_service import TaskService, TaskStatus
 from src.services.audio_service import AudioService
 from src.services.video_service import VideoService
+from src.services.batch_service import BatchService
+from src.services.script_service import ScriptService
+from src.services.storyboard_service import StoryboardService
+from src.services.ai_video_service import AIVideoService
+from src.services.quota_service import QuotaService
 
 app = FastAPI(
     title="Video Generator API",
@@ -44,6 +49,11 @@ file_service = FileService()
 task_service = TaskService()
 audio_service = AudioService(file_service=file_service)
 video_service = VideoService(file_service=file_service, task_service=task_service)
+batch_service = BatchService()
+script_service = ScriptService()
+storyboard_service = StoryboardService(file_service=file_service)
+ai_video_service = AIVideoService()
+quota_service = QuotaService()
 
 # ==================== 数据模型 ====================
 
@@ -210,6 +220,88 @@ class ProcessPipelineRequest(BaseModel):
     steps: List[ProcessStep] = Field(..., min_length=1, description="处理步骤列表")
     outputName: Optional[str] = Field(None, description="输出文件名")
 
+# ==================== 批量生成数据模型 ====================
+
+class EpisodeRange(BaseModel):
+    start: int = Field(..., ge=1, description="起始集数")
+    end: int = Field(..., ge=1, description="结束集数")
+
+class BatchGenerateRequest(BaseModel):
+    scriptId: str = Field(..., description="剧本 ID")
+    episodeRange: EpisodeRange = Field(..., description="集数范围")
+    parallelism: Optional[int] = Field(4, ge=1, le=10, description="并行度，默认 4")
+
+class BatchEpisodeProgress(BaseModel):
+    episode: int
+    totalShots: int
+    completedShots: int
+    failedShots: int
+    status: str
+    error: Optional[str] = None
+
+class BatchStatusResponse(BaseModel):
+    batchId: str
+    scriptId: str
+    status: str
+    totalEpisodes: int
+    totalShots: int
+    completedEpisodes: int
+    completedShots: int
+    failedEpisodes: int
+    progress: int
+    parallelism: int
+    episodeRange: Dict[str, int]
+    episodeProgress: Optional[List[Dict[str, Any]]] = None
+    createdAt: str
+    updatedAt: Optional[str] = None
+    completedAt: Optional[str] = None
+    error: Optional[Dict[str, Any]] = None
+
+# ==================== 分镜设计数据模型 ====================
+
+class StoryboardGenerateRequest(BaseModel):
+    scriptId: str = Field(..., description="剧本 ID")
+    title: Optional[str] = Field(None, description="剧本标题（可选，不填则从剧本读取）")
+
+class StoryboardResponse(BaseModel):
+    storyboardId: str
+    scriptId: str
+    title: str
+    createdAt: str
+    scenes: List[Dict[str, Any]]
+
+class StoryboardListResponse(BaseModel):
+    total: int
+    page: int
+    pageSize: int
+    storyboards: List[Dict[str, Any]]
+
+# ==================== AI 视频生成数据模型 ====================
+
+class AIVideoGenerateRequest(BaseModel):
+    prompt: str = Field(..., max_length=5000, description="视频描述提示词")
+    duration: Optional[int] = Field(5, ge=5, le=30, description="视频时长 (秒)，支持 5/10/15/30")
+    resolution: Optional[str] = Field("1080p", description="分辨率，支持 720p/1080p/4k")
+
+class AIVideoGenerateResponse(BaseModel):
+    taskId: str
+    status: str
+    estimatedTime: int
+
+class AIVideoStatusResponse(BaseModel):
+    taskId: str
+    status: str
+    progress: int
+    message: Optional[str] = None
+    videoUrl: Optional[str] = None
+    videoId: Optional[str] = None
+
+class AIVideoDownloadResponse(BaseModel):
+    videoId: str
+    fileName: str
+    fileSize: int
+    downloadUrl: str
+
 # ==================== 错误码 ====================
 
 ERROR_CODES = {
@@ -232,6 +324,16 @@ ERROR_CODES = {
     # 任务管理 (3000-3999)
     3001: "任务不存在",
     3002: "任务已完成，无法取消",
+    # AI 视频生成 (4000-4999)
+    4001: "提示词不能为空",
+    4002: "不支持的时长",
+    4003: "不支持的分辨率",
+    4004: "视频生成失败",
+    4005: "视频尚未完成",
+    5001: "Sora API 调用失败",
+    5002: "Sora API 超时",
+    5003: "视频下载失败",
+    5004: "服务内部错误",
 }
 
 def error_response(code: int, message: str = None, details: str = None, path: str = None):
@@ -1392,6 +1494,418 @@ async def video_process_pipeline(request: ProcessPipelineRequest):
         return error_response(400, str(e), path="/api/v1/video/process")
     except Exception as e:
         return error_response(5003, str(e), path="/api/v1/video/process")
+
+# ==================== AI 剧本生成数据模型 ====================
+
+class ScriptGenerateRequest(BaseModel):
+    theme: str = Field(..., max_length=500, description="剧本主题/梗概")
+    episodes: Optional[int] = Field(80, ge=1, le=200, description="集数")
+    genre: Optional[str] = Field("言情", description="题材类型")
+
+class ScriptGenerateResponse(BaseModel):
+    scriptId: str
+    title: str
+    episodes: int
+    genre: str
+    createdAt: str
+
+class ScriptExpandRequest(BaseModel):
+    scriptId: str
+    targetEpisodes: Optional[int] = Field(None, ge=1, le=200, description="目标集数")
+
+class ScriptListResponse(BaseModel):
+    total: int
+    scripts: List[Dict[str, Any]]
+
+# ==================== AI 剧本生成接口 ====================
+
+@app.post("/api/v1/ai/script/generate", response_model=Dict[str, Any])
+async def generate_script(request: ScriptGenerateRequest):
+    """
+    根据主题生成剧本
+    
+    - **theme**: 剧本主题/梗概
+    - **episodes**: 集数，默认 80 集
+    - **genre**: 题材类型（言情/悬疑/喜剧/动作/科幻/古装/都市/奇幻等）
+    """
+    try:
+        # 生成剧本
+        script_data = await script_service.generate_script(
+            theme=request.theme,
+            episodes=request.episodes,
+            genre=request.genre
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "scriptId": script_data["scriptId"],
+                "title": script_data["title"],
+                "episodes": script_data["episodes"],
+                "genre": script_data["genre"],
+                "createdAt": script_data["createdAt"],
+                "sceneCount": len(script_data.get("scenes", []))
+            },
+            "message": "剧本生成成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, str(e), path="/api/v1/ai/script/generate")
+
+
+@app.get("/api/v1/ai/script/{script_id}", response_model=Dict[str, Any])
+async def get_script(script_id: str = Path(..., description="剧本 ID")):
+    """
+    获取剧本详情
+    
+    - **script_id**: 剧本 ID
+    """
+    try:
+        script_data = script_service.get_script(script_id)
+        
+        if not script_data:
+            return error_response(404, "剧本不存在", path=f"/api/v1/ai/script/{script_id}")
+        
+        return {
+            "code": 200,
+            "data": script_data,
+            "message": "获取成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, str(e), path=f"/api/v1/ai/script/{script_id}")
+
+
+@app.post("/api/v1/ai/script/expand", response_model=Dict[str, Any])
+async def expand_script(request: ScriptExpandRequest):
+    """
+    扩展剧本为更多集
+    
+    - **scriptId**: 剧本 ID
+    - **targetEpisodes**: 目标集数（可选，默认增加 20 集）
+    """
+    try:
+        script_data = await script_service.expand_script(
+            script_id=request.scriptId,
+            target_episodes=request.targetEpisodes
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "scriptId": script_data["scriptId"],
+                "title": script_data["title"],
+                "episodes": script_data["episodes"],
+                "genre": script_data["genre"],
+                "sceneCount": len(script_data.get("scenes", []))
+            },
+            "message": "剧本扩展成功"
+        }
+        
+    except ValueError as e:
+        return error_response(400, str(e), path="/api/v1/ai/script/expand")
+    except Exception as e:
+        return error_response(5004, str(e), path="/api/v1/ai/script/expand")
+
+
+@app.get("/api/v1/ai/scripts", response_model=Dict[str, Any])
+async def list_scripts(limit: int = Query(20, ge=1, le=100, description="返回数量限制")):
+    """
+    获取剧本列表
+    
+    - **limit**: 返回数量限制，默认 20
+    """
+    try:
+        scripts = script_service.list_scripts(limit=limit)
+        
+        return {
+            "code": 200,
+            "data": {
+                "total": len(scripts),
+                "scripts": scripts
+            },
+            "message": "获取成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, str(e), path="/api/v1/ai/scripts")
+
+
+@app.delete("/api/v1/ai/script/{script_id}", response_model=Dict[str, Any])
+async def delete_script(script_id: str = Path(..., description="剧本 ID")):
+    """
+    删除剧本
+    
+    - **script_id**: 剧本 ID
+    """
+    try:
+        success = script_service.delete_script(script_id)
+        
+        if not success:
+            return error_response(404, "剧本不存在", path=f"/api/v1/ai/script/{script_id}")
+        
+        return {
+            "code": 200,
+            "data": None,
+            "message": "删除成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, str(e), path=f"/api/v1/ai/script/{script_id}")
+
+
+# ==================== 分镜设计接口 ====================
+
+@app.post("/ai/storyboard/generate", response_model=Dict[str, Any])
+async def generate_storyboard(request: StoryboardGenerateRequest):
+    """
+    将剧本转换为分镜 JSON
+    
+    - **scriptId**: 剧本 ID
+    - **title**: 剧本标题（可选，不填则从剧本读取）
+    
+    返回分镜数据，包含：
+    - storyboardId: 分镜 ID
+    - scriptId: 剧本 ID
+    - title: 标题
+    - scenes: 场景列表，每个场景包含多个镜头
+    - 每个镜头包含：shotId, type, description, duration, prompt（AI 绘画提示词）
+    
+    支持的镜头类型：wide（广角）, closeup（特写）, medium（中景）, extreme（极特写）
+    """
+    try:
+        # 生成分镜
+        storyboard = await storyboard_service.generate_storyboard(
+            script_id=request.scriptId,
+            title=request.title
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "storyboardId": storyboard["storyboardId"],
+                "scriptId": storyboard["scriptId"],
+                "title": storyboard["title"],
+                "createdAt": storyboard["createdAt"],
+                "scenes": storyboard["scenes"],
+                "sceneCount": len(storyboard.get("scenes", [])),
+                "totalShots": sum(len(scene.get("shots", [])) for scene in storyboard.get("scenes", []))
+            },
+            "message": "分镜生成成功"
+        }
+        
+    except FileNotFoundError as e:
+        return error_response(404, str(e), path="/ai/storyboard/generate")
+    except ValueError as e:
+        return error_response(400, str(e), path="/ai/storyboard/generate")
+    except Exception as e:
+        return error_response(5004, str(e), path="/ai/storyboard/generate")
+
+
+@app.get("/ai/storyboard/{storyboard_id}", response_model=Dict[str, Any])
+async def get_storyboard(storyboard_id: str = Path(..., description="分镜 ID")):
+    """
+    获取分镜详情
+    
+    - **storyboard_id**: 分镜 ID
+    
+    返回完整的分镜数据，包含所有场景和镜头信息
+    """
+    try:
+        storyboard = await storyboard_service.get_storyboard(storyboard_id)
+        
+        return {
+            "code": 200,
+            "data": storyboard,
+            "message": "获取成功"
+        }
+        
+    except FileNotFoundError as e:
+        return error_response(404, str(e), path=f"/ai/storyboard/{storyboard_id}")
+    except ValueError as e:
+        return error_response(400, str(e), path=f"/ai/storyboard/{storyboard_id}")
+    except Exception as e:
+        return error_response(5004, str(e), path=f"/ai/storyboard/{storyboard_id}")
+
+
+@app.get("/ai/storyboards", response_model=Dict[str, Any])
+async def list_storyboards(
+    scriptId: Optional[str] = Query(None, description="剧本 ID（可选，用于过滤）"),
+    page: int = Query(1, ge=1, description="页码"),
+    pageSize: int = Query(20, ge=1, le=100, description="每页数量")
+):
+    """
+    获取分镜列表
+    
+    - **scriptId**: 剧本 ID（可选，用于过滤）
+    - **page**: 页码，默认 1
+    - **pageSize**: 每页数量，默认 20
+    """
+    try:
+        result = await storyboard_service.list_storyboards(
+            script_id=scriptId,
+            page=page,
+            page_size=pageSize
+        )
+        
+        return {
+            "code": 200,
+            "data": result,
+            "message": "获取成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, str(e), path="/ai/storyboards")
+
+
+@app.delete("/ai/storyboard/{storyboard_id}", response_model=Dict[str, Any])
+async def delete_storyboard(storyboard_id: str = Path(..., description="分镜 ID")):
+    """
+    删除分镜
+    
+    - **storyboard_id**: 分镜 ID
+    """
+    try:
+        success = await storyboard_service.delete_storyboard(storyboard_id)
+        
+        if not success:
+            return error_response(404, "分镜不存在", path=f"/ai/storyboard/{storyboard_id}")
+        
+        return {
+            "code": 200,
+            "data": None,
+            "message": "删除成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, str(e), path=f"/ai/storyboard/{storyboard_id}")
+
+
+# ==================== AI 视频生成接口 ====================
+
+@app.post("/api/v1/ai/video/generate", response_model=Dict[str, Any])
+async def generate_ai_video(request: AIVideoGenerateRequest):
+    """
+    调用 Sora API 生成 AI 视频
+    
+    - **prompt**: 视频描述提示词（必填）
+    - **duration**: 视频时长 (秒)，支持 5/10/15/30（可选，默认 5）
+    - **resolution**: 分辨率，支持 720p/1080p/4k（可选，默认 1080p）
+    
+    异步任务模式，返回 taskId 用于查询进度
+    """
+    try:
+        # 参数验证
+        if not request.prompt or not request.prompt.strip():
+            return error_response(4001, "提示词不能为空", path="/api/v1/ai/video/generate")
+        
+        if request.duration and request.duration not in [5, 10, 15, 30]:
+            return error_response(4002, f"不支持的时长：{request.duration}，仅支持 5/10/15/30 秒", path="/api/v1/ai/video/generate")
+        
+        if request.resolution and request.resolution not in ["720p", "1080p", "4k"]:
+            return error_response(4003, f"不支持的分辨率：{request.resolution}，仅支持 720p/1080p/4k", path="/api/v1/ai/video/generate")
+        
+        # 调用服务生成视频
+        result = await ai_video_service.generate_video(
+            prompt=request.prompt,
+            duration=request.duration,
+            resolution=request.resolution
+        )
+        
+        return {
+            "code": 202,
+            "data": {
+                "taskId": result["taskId"],
+                "status": result["status"],
+                "estimatedTime": result["estimatedTime"]
+            },
+            "message": "视频生成任务已提交"
+        }
+        
+    except ValueError as e:
+        return error_response(4001, str(e), path="/api/v1/ai/video/generate")
+    except Exception as e:
+        return error_response(5001, str(e), path="/api/v1/ai/video/generate")
+
+
+@app.get("/api/v1/ai/video/{video_id}", response_model=Dict[str, Any])
+async def get_ai_video_status(video_id: str = Path(..., description="视频任务 ID")):
+    """
+    查询 AI 视频生成进度
+    
+    - **video_id**: 视频任务 ID
+    """
+    try:
+        result = await ai_video_service.query_video_status(video_id)
+        
+        return {
+            "code": 200,
+            "data": {
+                "taskId": result["taskId"],
+                "status": result["status"],
+                "progress": result["progress"],
+                "message": result.get("message"),
+                "videoUrl": result.get("video_url"),
+                "videoId": result.get("video_id")
+            },
+            "message": "查询成功"
+        }
+        
+    except ValueError as e:
+        return error_response(4001, str(e), path=f"/api/v1/ai/video/{video_id}")
+    except Exception as e:
+        return error_response(5001, str(e), path=f"/api/v1/ai/video/{video_id}")
+
+
+@app.post("/api/v1/ai/video/{video_id}/download", response_model=Dict[str, Any])
+async def download_ai_video(video_id: str = Path(..., description="视频 ID")):
+    """
+    下载已生成的 AI 视频
+    
+    - **video_id**: 视频 ID（任务完成后使用）
+    """
+    try:
+        result = await ai_video_service.download_video(video_id)
+        
+        return {
+            "code": 200,
+            "data": {
+                "videoId": result["videoId"],
+                "fileName": result["fileName"],
+                "fileSize": result["fileSize"],
+                "downloadUrl": result["downloadUrl"]
+            },
+            "message": "下载成功"
+        }
+        
+    except ValueError as e:
+        return error_response(4005, str(e), path=f"/api/v1/ai/video/{video_id}/download")
+    except Exception as e:
+        return error_response(5003, str(e), path=f"/api/v1/ai/video/{video_id}/download")
+
+
+@app.get("/api/v1/ai/video/config", response_model=Dict[str, Any])
+async def get_ai_video_config():
+    """
+    获取 AI 视频生成配置信息
+    
+    返回支持的分辨率和时长列表
+    """
+    try:
+        return {
+            "code": 200,
+            "data": {
+                "supportedResolutions": ai_video_service.get_supported_resolutions(),
+                "supportedDurations": ai_video_service.get_supported_durations(),
+                "defaultResolution": ai_video_service.default_resolution,
+                "defaultDuration": ai_video_service.default_duration
+            },
+            "message": "获取成功"
+        }
+        
+    except Exception as e:
+        return error_response(5004, str(e), path="/api/v1/ai/video/config")
+
 
 # ==================== 健康检查 ====================
 
