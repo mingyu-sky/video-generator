@@ -347,6 +347,12 @@ DELETE /api/v1/files/:fileId
 }
 ```
 
+**参数说明**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| duration.start | number | 否 | 开始出现时间（秒），默认 0 |
+| duration.end | number | 否 | 消失时间（秒），-1 表示直到视频结束 |
+
 ---
 
 ### 2.4 添加背景音乐
@@ -358,6 +364,8 @@ DELETE /api/v1/files/:fileId
 {
   "videoId": "fileId",
   "musicId": "audioId",
+  "startTime": 0,
+  "endTime": -1,
   "volume": 0.3,
   "fade": {
     "in": 2.0,
@@ -367,6 +375,16 @@ DELETE /api/v1/files/:fileId
   "outputName": "video_with_music.mp4"
 }
 ```
+
+**参数**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| startTime | number | 否 | 从视频的第几秒开始播放（秒），默认 0 |
+| endTime | number | 否 | 结束时间（秒），-1 表示直到视频结束 |
+| volume | number | 否 | 音量，0.0-1.0，默认 0.3 |
+| fade.in | number | 否 | 淡入时长（秒），默认 0 |
+| fade.out | number | 否 | 淡出时长（秒），默认 0 |
+| loop | boolean | 否 | 音乐时长不足时循环，默认 true |
 
 **参数**
 | 参数 | 类型 | 必填 | 说明 |
@@ -384,8 +402,9 @@ DELETE /api/v1/files/:fileId
 {
   "videoId": "fileId",
   "voiceoverId": "audioId",
-  "volume": 0.8,
   "alignMode": "start",
+  "startTime": 0,
+  "volume": 0.8,
   "outputName": "video_with_voiceover.mp4"
 }
 ```
@@ -393,7 +412,9 @@ DELETE /api/v1/files/:fileId
 **参数**
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| alignMode | string | 否 | start/center/end，默认 start |
+| alignMode | string | 否 | start/center/end/custom，默认 start |
+| startTime | number | 否 | 自定义开始时间（秒），alignMode=custom 时必填 |
+| volume | number | 否 | 音量，0.0-1.0，默认 0.8 |
 
 ---
 
@@ -406,6 +427,7 @@ DELETE /api/v1/files/:fileId
 {
   "videoId": "fileId",
   "subtitleId": "srtFileId",
+  "offset": 0,
   "style": {
     "fontSize": 20,
     "fontFamily": "思源黑体",
@@ -417,6 +439,11 @@ DELETE /api/v1/files/:fileId
   "outputName": "video_with_subtitles.mp4"
 }
 ```
+
+**参数**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| offset | number | 否 | 字幕整体时间偏移（秒），正数延迟，负数提前，默认 0 |
 
 ---
 
