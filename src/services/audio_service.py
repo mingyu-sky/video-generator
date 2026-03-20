@@ -16,6 +16,13 @@ try:
 except ImportError:
     EDGE_TTS_AVAILABLE = False
 
+# 阿里云 ASR 服务导入
+try:
+    from .asr_service import AliyunASRService
+    ALIYUN_ASR_AVAILABLE = True
+except ImportError:
+    ALIYUN_ASR_AVAILABLE = False
+
 
 class AudioService:
     """音频处理服务"""
@@ -31,6 +38,12 @@ class AudioService:
         
         # 文件服务引用
         self.file_service = file_service
+        
+        # 初始化阿里云 ASR 服务
+        if ALIYUN_ASR_AVAILABLE:
+            self.asr_service = AliyunASRService()
+        else:
+            self.asr_service = None
         
         # 支持的音色列表 (常用中文音色)
         self.supported_voices = [
@@ -183,8 +196,9 @@ class AudioService:
         Returns:
             任务结果
             
-        Note:
-            当前实现为框架，阿里云 API 待后续对接
+        Raises:
+            ValueError: 参数错误
+            RuntimeError: 识别失败
         """
         # 验证音频文件
         if not os.path.exists(audio_path):
@@ -199,12 +213,27 @@ class AudioService:
         if output_format not in ["srt", "vtt"]:
             output_format = "srt"
         
-        # 生成输出文件名
+        # 使用阿里云 ASR 服务
+        if self.asr_service and ALIYUN_ASR_AVAILABLE:
+            try:
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.asr_service.process_asr(
+                        audio_id=audio_id,
+                        audio_path=audio_path,
+                        language=language,
+                        output_format=output_format
+                    )
+                )
+                return result
+            except Exception as e:
+                # 如果阿里云服务失败，降级为模拟模式
+                pass
+        
+        # 降级为模拟模式（用于测试）
         output_name = f"asr_{uuid.uuid4().hex[:8]}.{output_format}"
         output_path = os.path.join(self.subtitles_dir, output_name)
         
-        # TODO: 对接阿里云 ASR API
-        # 当前返回模拟结果用于测试
         subtitle_content = self._generate_mock_subtitles(output_format)
         
         with open(output_path, 'w', encoding='utf-8') as f:

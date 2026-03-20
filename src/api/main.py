@@ -140,6 +140,13 @@ class ASRResponse(BaseModel):
     taskId: str
     status: str
 
+class ASRStatusResponse(BaseModel):
+    taskId: str
+    status: str
+    progress: int
+    message: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+
 # ==================== 视频处理数据模型 ====================
 
 class VideoConcatRequest(BaseModel):
@@ -666,6 +673,49 @@ async def generate_asr(request: ASRRequest):
         
     except Exception as e:
         return error_response(5003, "ASR 任务提交失败", str(e), path="/api/v1/audio/asr")
+
+@app.get("/api/v1/asr/{task_id}", response_model=Dict[str, Any])
+async def get_asr_status(task_id: str = Path(..., description="ASR 任务 ID")):
+    """
+    查询 ASR 识别进度
+    
+    - **task_id**: ASR 任务 ID
+    """
+    try:
+        # 查询任务状态
+        task = await task_service.get_task(task_id)
+        
+        if not task:
+            return error_response(3001, "ASR 任务不存在", path=f"/api/v1/asr/{task_id}")
+        
+        # 构建响应
+        response_data = {
+            "taskId": task["taskId"],
+            "status": task["status"],
+            "progress": task["progress"],
+            "message": task.get("message")
+        }
+        
+        # 如果任务完成，添加结果信息
+        if task["status"] == TaskStatus.COMPLETED.value and "result" in task:
+            result = task["result"]
+            response_data["result"] = {
+                "subtitleId": result.get("subtitleId"),
+                "outputId": result.get("outputId"),
+                "downloadUrl": f"/api/v1/files/{result.get('outputId')}/download"
+            }
+        
+        # 如果任务失败，添加错误信息
+        if task["status"] == TaskStatus.FAILED.value and "error" in task:
+            response_data["error"] = task["error"]
+        
+        return {
+            "code": 200,
+            "data": response_data
+        }
+        
+    except Exception as e:
+        return error_response(5003, "查询 ASR 进度失败", str(e), path=f"/api/v1/asr/{task_id}")
 
 # ==================== 视频处理接口 ====================
 
