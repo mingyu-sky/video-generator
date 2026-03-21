@@ -609,28 +609,60 @@ async def batch_delete_files(request: BatchDeleteRequest):
 
 # ==================== 任务管理接口 ====================
 
+@app.get("/api/v1/tasks", response_model=Dict[str, Any])
+async def get_tasks(
+    limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
+    orderBy: str = Query("createdAt", description="排序字段"),
+    order: str = Query("desc", description="排序顺序")
+):
+    """
+    获取任务列表
+
+    - **limit**: 返回数量限制，默认 20
+    - **orderBy**: 排序字段，默认 createdAt
+    - **order**: 排序顺序，默认 desc
+    """
+    try:
+        # 调用 task_service 的 list_tasks 方法
+        tasks_list = await task_service.list_tasks(limit=limit)
+
+        # 添加下载 URL
+        for task in tasks_list:
+            if "result" in task and task["result"] and "outputId" in task["result"]:
+                task["result"]["downloadUrl"] = f"/api/v1/files/{task['result']['outputId']}/download"
+
+        return {
+            "code": 200,
+            "data": tasks_list,
+            "message": "获取成功"
+        }
+
+    except Exception as e:
+        return error_response(5003, "获取任务列表失败", str(e), "/api/v1/tasks")
+
+
 @app.get("/api/v1/tasks/{task_id}", response_model=Dict[str, Any])
 async def get_task(task_id: str = Path(..., description="任务 ID")):
     """
     查询任务进度
-    
+
     - **task_id**: 任务 ID
     """
     try:
         task = await task_service.get_task(task_id)
-        
+
         if not task:
             return error_response(3001, "任务不存在", path=f"/api/v1/tasks/{task_id}")
-        
+
         # 添加下载 URL
         if "result" in task and task["result"] and "outputId" in task["result"]:
             task["result"]["downloadUrl"] = f"/api/v1/files/{task['result']['outputId']}/download"
-        
+
         return {
             "code": 200,
             "data": task
         }
-        
+
     except Exception as e:
         return error_response(5003, "查询任务失败", str(e), f"/api/v1/tasks/{task_id}")
 
