@@ -1,0 +1,225 @@
+{
+  "scriptId": "5b376251-7d1b-4865-a920-2fe3adcc4357",
+  "title": "测试",
+  "episodes": 10,
+  "genre": "不存在的题材",
+  "createdAt": "2026-03-20T21:38:50.748641Z",
+  "scenes": [
+    {
+      "sceneId": "S01E01-001",
+      "episode": 1,
+      "location": "场景地点",
+      "time": "日",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第1集第1场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第1集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S01E01-002",
+      "episode": 1,
+      "location": "场景地点",
+      "time": "夜",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第1集第2场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第1集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S01E01-003",
+      "episode": 1,
+      "location": "场景地点",
+      "time": "日",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第1集第3场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第1集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S02E02-001",
+      "episode": 2,
+      "location": "场景地点",
+      "time": "日",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第2集第1场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第2集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S02E02-002",
+      "episode": 2,
+      "location": "场景地点",
+      "time": "夜",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第2集第2场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第2集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S02E02-003",
+      "episode": 2,
+      "location": "场景地点",
+      "time": "日",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第2集第3场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第2集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S03E03-001",
+      "episode": 3,
+      "location": "场景地点",
+      "time": "日",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第3集第1场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第3集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S03E03-002",
+      "episode": 3,
+      "location": "场景地点",
+      "time": "夜",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第3集第2场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第3集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    },
+    {
+      "sceneId": "S03E03-003",
+      "episode": 3,
+      "location": "场景地点",
+      "time": "日",
+      "characters": [
+        "女主",
+        "男主"
+      ],
+      "description": "第3集第3场：测试相关场景",
+      "dialogue": [
+        {
+          "character": "女主",
+          "text": "这是第3集的开场白",
+          "emotion": "期待"
+        },
+        {
+          "character": "男主",
+          "text": "剧情正在发展中...",
+          "emotion": "神秘"
+        }
+      ],
+      "duration": 15
+    }
+  ]
+}

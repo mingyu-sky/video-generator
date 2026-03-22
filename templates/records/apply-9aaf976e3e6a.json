@@ -1,0 +1,29 @@
+{
+  "applyId": "apply-9aaf976e3e6a",
+  "templateId": "tmpl-541b280229d9",
+  "templateName": "端到端测试模板",
+  "videoId": "test_video_48888c3c-510e-437c-b6f2-4b9dff8d4c70",
+  "appliedAt": "2026-03-20T22:40:48.100971+00:00",
+  "steps": [
+    {
+      "stepType": "audio",
+      "config": {
+        "voice": "zh-CN-XiaoxiaoNeural",
+        "speed": 1.0,
+        "backgroundMusic": "mat-571cf6e2b982"
+      },
+      "order": 0
+    },
+    {
+      "stepType": "video",
+      "config": {
+        "resolution": "1080p",
+        "fps": 30,
+        "addSubtitles": true
+      },
+      "order": 1
+    }
+  ],
+  "status": "ready",
+  "currentStep": 0
+}
