@@ -32,6 +32,7 @@ from src.services.dashboard_service import DashboardService
 from src.services.template_service import TemplateService
 from src.services.system_service import SystemService
 from src.services.material_service import MaterialService
+from src.services.effect_service import EffectService
 
 app = FastAPI(
     title="Video Generator API",
@@ -62,6 +63,7 @@ dashboard_service = DashboardService()
 template_service = TemplateService(file_service=file_service)
 system_service = SystemService()
 material_service = MaterialService(file_service=file_service)
+effect_service = EffectService()
 
 # ==================== 数据模型 ====================
 
@@ -2789,6 +2791,115 @@ async def get_system_info():
         "data": result,
         "message": "获取成功"
     }
+
+
+# ==================== 特效管理 ====================
+
+class TextEffectRequest(BaseModel):
+    videoId: str
+    text: str
+    outputName: Optional[str] = None
+    style: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+class FollowEffectRequest(BaseModel):
+    videoId: str
+    outputName: Optional[str] = None
+    startTime: float = Field(0, ge=0)
+    duration: float = Field(5.0, gt=0)
+    style: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+class PIPEffectRequest(BaseModel):
+    mainVideoId: str
+    pipVideoId: str
+    outputName: Optional[str] = None
+    layout: str = Field("bottom-right", description="布局：bottom-right/bottom-left/center")
+    style: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+class EffectTaskResponse(BaseModel):
+    taskId: str
+    status: str
+    outputUrl: Optional[str] = None
+
+
+@app.post("/api/v1/effects/text", response_model=Dict[str, Any])
+async def apply_text_effect(request: TextEffectRequest):
+    """
+    应用文字特效到视频
+    
+    - **videoId**: 视频文件 ID
+    - **text**: 文字内容
+    - **outputName**: 输出文件名
+    - **style**: 样式配置（fontSize, color, effect, position 等）
+    """
+    try:
+        video_path = file_service.get_file_path(request.videoId)
+        output_name = request.outputName or f"effect_text_{uuid.uuid4().hex[:8]}.mp4"
+        output_path = os.path.join(file_service.base_dir, "output", output_name)
+        
+        effect_service.apply_text_effect(video_path, request.text, output_path, request.style)
+        
+        return {
+            "code": 200,
+            "data": {"outputName": output_name, "downloadUrl": f"/api/v1/files/output/{output_name}"},
+            "message": "文字特效应用成功"
+        }
+    except Exception as e:
+        return error_response(5002, str(e), path="/api/v1/effects/text")
+
+
+@app.post("/api/v1/effects/follow", response_model=Dict[str, Any])
+async def apply_follow_effect(request: FollowEffectRequest):
+    """
+    应用点关注特效到视频
+    
+    - **videoId**: 视频文件 ID
+    - **outputName**: 输出文件名
+    - **startTime**: 开始时间（秒）
+    - **duration**: 持续时长（秒）
+    - **style**: 样式配置（buttonType, animation, text, position 等）
+    """
+    try:
+        video_path = file_service.get_file_path(request.videoId)
+        output_name = request.outputName or f"effect_follow_{uuid.uuid4().hex[:8]}.mp4"
+        output_path = os.path.join(file_service.base_dir, "output", output_name)
+        
+        effect_service.apply_follow_effect(video_path, output_path, request.startTime, request.duration, request.style)
+        
+        return {
+            "code": 200,
+            "data": {"outputName": output_name, "downloadUrl": f"/api/v1/files/output/{output_name}"},
+            "message": "点关注特效应用成功"
+        }
+    except Exception as e:
+        return error_response(5002, str(e), path="/api/v1/effects/follow")
+
+
+@app.post("/api/v1/effects/pip", response_model=Dict[str, Any])
+async def apply_pip_effect(request: PIPEffectRequest):
+    """
+    应用画中画特效
+    
+    - **mainVideoId**: 主视频文件 ID
+    - **pipVideoId**: 画中画视频文件 ID
+    - **outputName**: 输出文件名
+    - **layout**: 布局模式（bottom-right/bottom-left/center）
+    - **style**: 样式配置（size, border, shadow, transition 等）
+    """
+    try:
+        main_path = file_service.get_file_path(request.mainVideoId)
+        pip_path = file_service.get_file_path(request.pipVideoId)
+        output_name = request.outputName or f"effect_pip_{uuid.uuid4().hex[:8]}.mp4"
+        output_path = os.path.join(file_service.base_dir, "output", output_name)
+        
+        effect_service.apply_pip_effect(main_path, pip_path, output_path, request.layout, request.style)
+        
+        return {
+            "code": 200,
+            "data": {"outputName": output_name, "downloadUrl": f"/api/v1/files/output/{output_name}"},
+            "message": "画中画特效应用成功"
+        }
+    except Exception as e:
+        return error_response(5002, str(e), path="/api/v1/effects/pip")
 
 
 # ==================== 启动服务器 ====================
