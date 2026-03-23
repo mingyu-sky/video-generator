@@ -2906,4 +2906,4 @@ async def apply_pip_effect(request: PIPEffectRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=15321)
+    uvicorn.run(app, host="0.0.0.0", port=8080)
