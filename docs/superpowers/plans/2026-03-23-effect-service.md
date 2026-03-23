@@ -59,7 +59,7 @@ class TestEffectServiceInit:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py -v`
 Expected: FAIL with "No module named 'src.services.effect_service'"
 
 - [ ] **Step 3: Write minimal EffectService class**
@@ -110,13 +110,13 @@ class EffectService:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestEffectServiceInit -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestEffectServiceInit -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/admin/sora-video-generator && git add src/services/effect_service.py tests/test_effect_service.py && git commit -m "feat(effect): add EffectService base class"
+cd /home/admin/video-generator && git add src/services/effect_service.py tests/test_effect_service.py && git commit -m "feat(effect): add EffectService base class"
 ```
 
 ---
@@ -180,7 +180,7 @@ class TestTextEffects:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects -v`
 Expected: FAIL with "AttributeError: 'EffectService' object has no attribute 'create_text_effect'"
 
 - [ ] **Step 3: Implement create_text_effect with fade_in/fade_out**
@@ -273,13 +273,13 @@ Expected: FAIL with "AttributeError: 'EffectService' object has no attribute 'cr
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect): implement fade_in/fade_out text effects"
+cd /home/admin/video-generator && git add -A && git commit -m "feat(effect): implement fade_in/fade_out text effects"
 ```
 
 ---
@@ -317,7 +317,7 @@ cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect)
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects::test_create_text_clip_typewriter -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects::test_create_text_clip_typewriter -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement typewriter effect**
@@ -389,13 +389,13 @@ Expected: FAIL
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects::test_create_text_clip_typewriter -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects::test_create_text_clip_typewriter -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect): implement typewriter text effect"
+cd /home/admin/video-generator && git add -A && git commit -m "feat(effect): implement typewriter text effect"
 ```
 
 ---
@@ -455,7 +455,7 @@ cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect)
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects::test_create_text_clip_flash tests/test_effect_service.py::TestTextEffects::test_create_text_clip_slide_in_left -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects::test_create_text_clip_flash tests/test_effect_service.py::TestTextEffects::test_create_text_clip_slide_in_left -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement flash/slide_in effects**
@@ -585,13 +585,13 @@ Expected: FAIL
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestTextEffects -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect): implement flash and slide_in text effects"
+cd /home/admin/video-generator && git add -A && git commit -m "feat(effect): implement flash and slide_in text effects"
 ```
 
 ---
@@ -652,7 +652,7 @@ class TestFollowEffects:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestFollowEffects -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestFollowEffects -v`
 Expected: FAIL with "AttributeError: 'EffectService' object has no attribute 'create_follow_effect'"
 
 - [ ] **Step 3: Implement create_follow_effect**
@@ -779,13 +779,13 @@ Expected: FAIL with "AttributeError: 'EffectService' object has no attribute 'cr
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestFollowEffects -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestFollowEffects -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect): implement follow effects (pulse/popup/fade_in)"
+cd /home/admin/video-generator && git add -A && git commit -m "feat(effect): implement follow effects (pulse/popup/fade_in)"
 ```
 
 ---
@@ -857,7 +857,7 @@ class TestPipeEffect:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestPipeEffect -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestPipeEffect -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement PIP effects**
@@ -986,13 +986,13 @@ Expected: FAIL
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestPipeEffect -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestPipeEffect -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect): implement picture-in-picture effects"
+cd /home/admin/video-generator && git add -A && git commit -m "feat(effect): implement picture-in-picture effects"
 ```
 
 ---
@@ -1079,7 +1079,7 @@ class TestEffectHelpers:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py::TestEffectIntegration tests/test_effect_service.py::TestEffectHelpers -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py::TestEffectIntegration tests/test_effect_service.py::TestEffectHelpers -v`
 Expected: Some tests FAIL
 
 - [ ] **Step 3: Implement apply_effect_to_video method**
@@ -1179,13 +1179,13 @@ Expected: Some tests FAIL
 
 - [ ] **Step 4: Run all tests to verify they pass**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py -v`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py -v`
 Expected: PASS (大部分测试，文件相关测试可能跳过)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect): add apply_effect_to_video integration method and tests"
+cd /home/admin/video-generator && git add -A && git commit -m "feat(effect): add apply_effect_to_video integration method and tests"
 ```
 
 ---
@@ -1197,18 +1197,18 @@ cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect)
 
 - [ ] **Step 1: Run full test suite**
 
-Run: `cd /home/admin/sora-video-generator && python -m pytest tests/test_effect_service.py -v --tb=short`
+Run: `cd /home/admin/video-generator && python -m pytest tests/test_effect_service.py -v --tb=short`
 Expected: Most tests PASS
 
 - [ ] **Step 2: Verify code quality**
 
-Run: `cd /home/admin/sora-video-generator && python -c "from src.services.effect_service import EffectService; print('Import OK')"`
+Run: `cd /home/admin/video-generator && python -c "from src.services.effect_service import EffectService; print('Import OK')"`
 Expected: "Import OK"
 
 - [ ] **Step 3: Final commit with all changes**
 
 ```bash
-cd /home/admin/sora-video-generator && git add -A && git commit -m "feat(effect): complete EffectService with text/follow/pip effects
+cd /home/admin/video-generator && git add -A && git commit -m "feat(effect): complete EffectService with text/follow/pip effects
 
 - Add text effects: fade_in, fade_out, typewriter, flash, slide_in
 - Add follow effects: pulse, popup, fade_in
