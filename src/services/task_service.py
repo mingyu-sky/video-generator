@@ -1,7 +1,7 @@
 """
 任务管理服务
 处理任务创建、查询、取消等操作
-使用 SQLite 存储任务状态
+使用 SQLite 存储任务状态，带连接池支持
 """
 import os
 import json
@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from enum import Enum
 import threading
+from queue import Queue, Empty
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TaskStatus(Enum):
@@ -46,15 +50,49 @@ class TaskService:
         # 确保目录存在
         os.makedirs(self.base_dir, exist_ok=True)
         
-        # 初始化数据库
+        # 连接池配置
+        self.pool_size = 10
+        self.pool: Queue = Queue(maxsize=self.pool_size)
+        self.pool_lock = threading.Lock()
+        
+        # 初始化数据库和连接池
         self._init_db()
+        self._init_pool()
         self._initialized = True
     
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
+    def _init_pool(self):
+        """初始化连接池"""
+        for _ in range(self.pool_size):
+            conn = self._create_connection()
+            self.pool.put(conn)
+        logger.info(f"SQLite 连接池初始化完成，池大小：{self.pool_size}")
+    
+    def _create_connection(self) -> sqlite3.Connection:
+        """创建新数据库连接"""
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")  # WAL 模式提升并发性能
+        conn.execute("PRAGMA busy_timeout=5000")  # 设置忙等待超时
         return conn
+    
+    def _get_connection(self, timeout: float = 5.0) -> sqlite3.Connection:
+        """从连接池获取连接（带超时）"""
+        try:
+            return self.pool.get(timeout=timeout)
+        except Empty:
+            logger.warning("连接池已满，创建临时连接")
+            return self._create_connection()
+    
+    def _return_connection(self, conn: sqlite3.Connection):
+        """归还连接到连接池"""
+        try:
+            self.pool.put_nowait(conn)
+        except Exception as e:
+            logger.error(f"归还连接失败：{e}")
+            try:
+                conn.close()
+            except:
+                pass
     
     def _init_db(self):
         """初始化数据库表"""

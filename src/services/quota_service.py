@@ -8,6 +8,7 @@ import sqlite3
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 import threading
+from queue import Queue, Empty
 
 from src.models.quota import Quota
 
@@ -45,15 +46,48 @@ class QuotaService:
         # 确保目录存在
         os.makedirs(self.base_dir, exist_ok=True)
         
-        # 初始化数据库
+        # 连接池配置
+        self.pool_size = 5
+        self.pool: Queue = Queue(maxsize=self.pool_size)
+        
+        # 初始化数据库和连接池
         self._init_db()
+        self._init_pool()
         self._initialized = True
     
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
+    def _init_pool(self):
+        """初始化连接池"""
+        for _ in range(self.pool_size):
+            conn = self._create_connection()
+            self.pool.put(conn)
+        print(f"配额服务连接池初始化完成，池大小：{self.pool_size}")
+    
+    def _create_connection(self) -> sqlite3.Connection:
+        """创建新数据库连接"""
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         return conn
+    
+    def _get_connection(self, timeout: float = 5.0) -> sqlite3.Connection:
+        """从连接池获取连接（带超时）"""
+        try:
+            return self.pool.get(timeout=timeout)
+        except Empty:
+            print("连接池已满，创建临时连接")
+            return self._create_connection()
+    
+    def _return_connection(self, conn: sqlite3.Connection):
+        """归还连接到连接池"""
+        try:
+            self.pool.put_nowait(conn)
+        except Exception as e:
+            print(f"归还连接失败：{e}")
+            try:
+                conn.close()
+            except:
+                pass
     
     def _init_db(self):
         """初始化数据库表"""
@@ -270,59 +304,68 @@ class QuotaService:
                 "error": check_result.get("error", "配额不足")
             }
         
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        now = datetime.now(timezone.utc)
-        now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        
-        # 检查并重置每日配额
-        self._reset_daily_quota_if_needed(user_id, cursor)
-        
-        # 获取当前每日配额使用情况
-        cursor.execute('SELECT daily_quota_used FROM quotas WHERE user_id = ?', (user_id,))
-        row = cursor.fetchone()
-        current_daily_used = row["daily_quota_used"] if row else 0
-        
-        # 优先扣除每日免费配额（最多 60 秒/日）
-        daily_remaining = 60 - current_daily_used
-        daily_deducted = min(amount, daily_remaining)
-        paid_deducted = amount - daily_deducted
-        
-        # 更新配额
-        if paid_deducted > 0:
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            now = datetime.now(timezone.utc)
+            now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            
+            # 检查并重置每日配额
+            self._reset_daily_quota_if_needed(user_id, cursor)
+            
+            # 获取当前每日配额使用情况
+            cursor.execute('SELECT daily_quota_used FROM quotas WHERE user_id = ?', (user_id,))
+            row = cursor.fetchone()
+            current_daily_used = row["daily_quota_used"] if row else 0
+            
+            # 优先扣除每日免费配额（最多 60 秒/日）
+            daily_remaining = 60 - current_daily_used
+            daily_deducted = min(amount, daily_remaining)
+            paid_deducted = amount - daily_deducted
+            
+            # 更新配额
+            if paid_deducted > 0:
+                cursor.execute('''
+                    UPDATE quotas 
+                    SET quota_used = quota_used + ?, daily_quota_used = daily_quota_used + ?, updated_at = ?
+                    WHERE user_id = ?
+                ''', (paid_deducted, daily_deducted, now_str, user_id))
+            else:
+                cursor.execute('''
+                    UPDATE quotas 
+                    SET daily_quota_used = daily_quota_used + ?, updated_at = ?
+                    WHERE user_id = ?
+                ''', (daily_deducted, now_str, user_id))
+            
+            # 记录交易
             cursor.execute('''
-                UPDATE quotas 
-                SET quota_used = quota_used + ?, daily_quota_used = daily_quota_used + ?, updated_at = ?
-                WHERE user_id = ?
-            ''', (paid_deducted, daily_deducted, now_str, user_id))
-        else:
-            cursor.execute('''
-                UPDATE quotas 
-                SET daily_quota_used = daily_quota_used + ?, updated_at = ?
-                WHERE user_id = ?
-            ''', (daily_deducted, now_str, user_id))
-        
-        # 记录交易
-        cursor.execute('''
-            INSERT INTO quota_transactions (user_id, amount, task_type, task_id, transaction_type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, amount, task_type, task_id, "deduct", now_str))
-        
-        conn.commit()
-        conn.close()
-        
-        # 获取更新后的配额
-        quota = await self.get_quota(user_id)
-        
-        return {
-            "success": True,
-            "deducted": amount,
-            "daily_deducted": daily_deducted,
-            "paid_deducted": paid_deducted,
-            "remaining": quota.quota_remaining + quota.daily_quota_remaining,
-            "message": "扣费成功"
-        }
+                INSERT INTO quota_transactions (user_id, amount, task_type, task_id, transaction_type, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, amount, task_type, task_id, "deduct", now_str))
+            
+            conn.commit()
+            
+            # 获取更新后的配额
+            quota = await self.get_quota(user_id)
+            
+            return {
+                "success": True,
+                "deducted": amount,
+                "daily_deducted": daily_deducted,
+                "paid_deducted": paid_deducted,
+                "remaining": quota.quota_remaining + quota.daily_quota_remaining,
+                "message": "扣费成功"
+            }
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise RuntimeError(f"扣费失败：{str(e)}")
+        finally:
+            if conn:
+                conn.close()
     
     async def add_quota(
         self, 
@@ -346,49 +389,58 @@ class QuotaService:
                 "expire": str
             }
         """
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        now = datetime.now(timezone.utc)
-        now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        expire_date = now + timedelta(days=expire_days)
-        expire_str = expire_date.strftime("%Y-%m-%dT%H:%M:%SZ")
-        
-        # 检查用户是否存在
-        cursor.execute('SELECT * FROM quotas WHERE user_id = ?', (user_id,))
-        row = cursor.fetchone()
-        
-        if row:
-            # 用户已存在，增加配额并更新过期时间
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            now = datetime.now(timezone.utc)
+            now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            expire_date = now + timedelta(days=expire_days)
+            expire_str = expire_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+            
+            # 检查用户是否存在
+            cursor.execute('SELECT * FROM quotas WHERE user_id = ?', (user_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                # 用户已存在，增加配额并更新过期时间
+                cursor.execute('''
+                    UPDATE quotas 
+                    SET quota_total = quota_total + ?, quota_expire = ?, updated_at = ?
+                    WHERE user_id = ?
+                ''', (amount, expire_str, now_str, user_id))
+            else:
+                # 新用户，创建配额记录
+                cursor.execute('''
+                    INSERT INTO quotas (user_id, quota_total, quota_used, quota_expire, daily_free_quota, 
+                                       daily_quota_used, last_reset_date, created_at, updated_at)
+                    VALUES (?, ?, 0, ?, 60, 0, ?, ?, ?)
+                ''', (user_id, amount, expire_str, datetime.now().strftime("%Y-%m-%d"), now_str, now_str))
+            
+            # 记录交易
             cursor.execute('''
-                UPDATE quotas 
-                SET quota_total = quota_total + ?, quota_expire = ?, updated_at = ?
-                WHERE user_id = ?
-            ''', (amount, expire_str, now_str, user_id))
-        else:
-            # 新用户，创建配额记录
-            cursor.execute('''
-                INSERT INTO quotas (user_id, quota_total, quota_used, quota_expire, daily_free_quota, 
-                                   daily_quota_used, last_reset_date, created_at, updated_at)
-                VALUES (?, ?, 0, ?, 60, 0, ?, ?, ?)
-            ''', (user_id, amount, expire_str, datetime.now().strftime("%Y-%m-%d"), now_str, now_str))
-        
-        # 记录交易
-        cursor.execute('''
-            INSERT INTO quota_transactions (user_id, amount, task_type, task_id, transaction_type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, amount, "topup", None, "topup", now_str))
-        
-        conn.commit()
-        conn.close()
-        
-        return {
-            "success": True,
-            "added": amount,
-            "total": amount,  # 简化处理，实际应该查询数据库
-            "expire": expire_str,
-            "message": f"充值成功，配额将在 {expire_days} 天后过期"
-        }
+                INSERT INTO quota_transactions (user_id, amount, task_type, task_id, transaction_type, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, amount, "topup", None, "topup", now_str))
+            
+            conn.commit()
+            
+            return {
+                "success": True,
+                "added": amount,
+                "total": amount,  # 简化处理，实际应该查询数据库
+                "expire": expire_str,
+                "message": f"充值成功，配额将在 {expire_days} 天后过期"
+            }
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise RuntimeError(f"充值失败：{str(e)}")
+        finally:
+            if conn:
+                conn.close()
     
     async def get_transaction_history(
         self, 

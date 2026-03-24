@@ -83,13 +83,13 @@ class VideoService:
             output_name = f"concat_{uuid.uuid4().hex[:8]}.mp4"
         output_path = os.path.join(self.output_dir, output_name)
         
-        # 加载视频片段
+        # 加载视频片段（使用列表推导式）
         clips = []
-        for path in video_paths:
-            clip = VideoFileClip(path)
-            clips.append(clip)
-        
         try:
+            for path in video_paths:
+                clip = VideoFileClip(path)
+                clips.append(clip)
+            
             # 应用转场效果
             if transition == "none":
                 # 简单拼接
@@ -98,38 +98,41 @@ class VideoService:
                 # 应用转场
                 final_clip = self._concat_with_transition(clips, transition)
             
-            # 写入文件
-            final_clip.write_videofile(
-                output_path,
-                codec='libx264',
-                audio_codec='aac',
-                temp_audiofile='temp-audio.m4a',
-                remove_temp=True,
-                fps=clips[0].fps if clips else 30
-            )
-            
-            # 获取输出信息
-            output_duration = final_clip.duration
-            output_resolution = f"{final_clip.w}x{final_clip.h}"
-            
-            # 关闭 clips
-            for clip in clips:
-                clip.close()
-            final_clip.close()
-            
-            return {
-                "outputId": str(uuid.uuid4()),
-                "fileName": output_name,
-                "filePath": output_path,
-                "duration": output_duration,
-                "resolution": output_resolution
-            }
-            
+            try:
+                # 写入文件
+                final_clip.write_videofile(
+                    output_path,
+                    codec='libx264',
+                    audio_codec='aac',
+                    temp_audiofile='temp-audio.m4a',
+                    remove_temp=True,
+                    fps=clips[0].fps if clips else 30,
+                    logger=None  # 禁用日志输出
+                )
+                
+                # 获取输出信息
+                output_duration = final_clip.duration
+                output_resolution = f"{final_clip.w}x{final_clip.h}"
+                
+                return {
+                    "outputId": str(uuid.uuid4()),
+                    "fileName": output_name,
+                    "filePath": output_path,
+                    "duration": output_duration,
+                    "resolution": output_resolution
+                }
+            finally:
+                # 确保关闭 final_clip
+                final_clip.close()
         except Exception as e:
-            # 清理资源
-            for clip in clips:
-                clip.close()
             raise RuntimeError(f"视频拼接失败：{str(e)}")
+        finally:
+            # 确保所有 clips 都被关闭
+            for clip in clips:
+                try:
+                    clip.close()
+                except:
+                    pass
     
     def _concat_with_transition(self, clips: List, transition: str, duration: float = 1.0) -> VideoFileClip:
         """应用转场效果进行拼接"""

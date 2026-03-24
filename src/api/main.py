@@ -2,11 +2,14 @@
 Video Generator API - FastAPI Application
 版本：v2.0
 """
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Path
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import uuid
 import os
 import shutil
@@ -34,16 +37,24 @@ from src.services.system_service import SystemService
 from src.services.material_service import MaterialService
 from src.services.effect_service import EffectService
 
+# 速率限制器初始化
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="Video Generator API",
     version="2.0",
     description="视频生成处理 API 服务"
 )
 
-# CORS 配置
+# 注册速率限制中间件
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS 配置 - 限制为特定域名
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -415,7 +426,9 @@ def error_response(code: int, message: str = None, details: str = None, path: st
 # ==================== 文件管理接口 ====================
 
 @app.post("/api/v1/files/upload", response_model=Dict[str, Any])
+@limiter.limit("10/minute")  # 文件上传：每分钟 10 次
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     type: str = Form(...)
 ):
@@ -726,6 +739,7 @@ async def batch_query_tasks(request: BatchQueryRequest):
 # ==================== 音频处理接口 ====================
 
 @app.post("/api/v1/audio/voiceover", response_model=Dict[str, Any])
+@limiter.limit("20/minute")  # 语音生成：每分钟 20 次
 async def generate_voiceover(request: VoiceoverRequest):
     """
     AI 配音生成（Edge TTS）
@@ -1879,6 +1893,7 @@ async def delete_storyboard(storyboard_id: str = Path(..., description="分镜 I
 # ==================== AI 视频生成接口 ====================
 
 @app.post("/api/v1/ai/video/generate", response_model=Dict[str, Any])
+@limiter.limit("5/minute")  # AI 视频生成：每分钟 5 次
 async def generate_ai_video(request: AIVideoGenerateRequest):
     """
     调用 Sora API 生成 AI 视频
