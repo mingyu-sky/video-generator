@@ -91,12 +91,36 @@ class MaterialService:
         end_idx = start_idx + page_size
         paginated_list = music_list[start_idx:end_idx]
         
+        # 转换数据格式以匹配前端期望
+        formatted_music_list = []
+        for music in paginated_list:
+            # 清理文件名，去掉 UUID 前缀
+            file_name = music.get("fileName", "未知曲目")
+            clean_name = file_name.split("_")[-1] if "_" in file_name else file_name
+            
+            # 使用 base64 编码的 SVG 作为默认封面（避免外部依赖）
+            default_cover = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIyNSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNjY3ZWVkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+8J+OtSBNdXNpYzwvdGV4dD48L3N2Zz4="
+            
+            formatted_music_list.append({
+                "id": music.get("materialId", ""),
+                "name": clean_name.replace(".mp3", "").replace(".wav", ""),
+                "artist": music.get("description", "未知艺术家"),
+                "type": music.get("genre", music.get("category", "bgm")),
+                "mood": music.get("mood", "平静"),
+                "duration": music.get("duration", 0),
+                "coverUrl": default_cover,
+                "url": f"/api/v1/materials/preview/{music.get('materialId', '')}",
+                "tags": music.get("tags", []),
+                "genre": music.get("genre", music.get("category", "bgm")),
+                "uploadTime": music.get("uploadTime", "")
+            })
+        
         return {
             "total": total,
             "page": page,
             "pageSize": page_size,
             "totalPages": (total + page_size - 1) // page_size if page_size > 0 else 0,
-            "musicList": paginated_list,
+            "musicList": formatted_music_list,
             "genres": self.music_genres,
             "moods": self.music_moods
         }
@@ -124,10 +148,20 @@ class MaterialService:
                             template_data = json.load(f)
                             
                             # 筛选条件
-                            if type and template_data.get('type') != type:
+                            if type and template_data.get('templateType') != type:
                                 continue
-                                
-                            template_list.append(template_data)
+                            
+                            # 转换数据格式以匹配前端期望
+                            template_list.append({
+                                "id": template_data.get("materialId", ""),
+                                "name": template_data.get("fileName", "未知模板").split("_")[-1],
+                                "type": template_data.get("templateType", template_data.get("category", "intro")),
+                                "duration": template_data.get("duration", 0),
+                                "previewUrl": f"/api/v1/materials/preview/{template_data.get('materialId', '')}",
+                                "coverUrl": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIyNSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZTc3ZmZlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+8J+YACBUZW1wbGF0ZTwvdGV4dD48L3N2Zz4=",
+                                "tags": template_data.get("tags", []),
+                                "uploadTime": template_data.get("uploadTime", "")
+                            })
                     except (json.JSONDecodeError, IOError):
                         continue
         
